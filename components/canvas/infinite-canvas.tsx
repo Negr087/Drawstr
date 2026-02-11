@@ -33,6 +33,8 @@ export function InfiniteCanvas({ canvasId }: InfiniteCanvasProps) {
     handle: string;
     startPoint: Point;
     originalElement: CanvasElement;
+    originalElements?: CanvasElement[];
+    originalGroupBounds?: { x: number; y: number; width: number; height: number };
   } | null>(null);
   const [selectionBox, setSelectionBox] = useState<{
     start: Point;
@@ -441,6 +443,44 @@ sortedElements.forEach((element) => {
   if (editingText && element.id === editingText.element.id) return;
   drawElement(ctx, element);
 });
+
+// Dibujar bounding box del grupo si hay múltiples seleccionados
+if (selectedElementIds.size > 1) {
+  const selectedEls = Array.from(selectedElementIds)
+    .map(id => elements.get(id))
+    .filter(Boolean) as CanvasElement[];
+  
+  const groupBounds = getGroupBounds(selectedEls);
+  
+  ctx.save();
+  ctx.translate(viewportOffset.x, viewportOffset.y);
+  ctx.scale(zoom, zoom);
+  
+  ctx.strokeStyle = "#00d9ff";
+  ctx.lineWidth = 2 / zoom;
+  ctx.setLineDash([5 / zoom, 5 / zoom]);
+  ctx.strokeRect(
+    groupBounds.x - 5 / zoom,
+    groupBounds.y - 5 / zoom,
+    groupBounds.width + 10 / zoom,
+    groupBounds.height + 10 / zoom
+  );
+  ctx.setLineDash([]);
+
+  // Handles del grupo
+  const handleSize = 8 / zoom;
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#00d9ff";
+  ctx.lineWidth = 1 / zoom;
+
+  const handles = getResizeHandles(groupBounds);
+  Object.values(handles).forEach(({ x, y }) => {
+    ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
+  });
+  
+  ctx.restore();
+}
     // Draw ephemeral elements (laser pointer)
 ephemeralElements.forEach((element) => {
   // Calcular fade out basado en tiempo restante
@@ -504,31 +544,35 @@ ephemeralElements.forEach((element) => {
         return;
       }
 
-      // Check for resize handles first
-      if (activeTool === "select" && selectedElementIds.size === 1) {
-        const id = Array.from(selectedElementIds)[0];
-        const element = elements.get(id);
-        if (element) {
-          const bounds = getElementBounds(element);
-          const handles = getResizeHandles(bounds);
-          const handleSize = 8 / zoom;
+      // Check for resize handles
+if (activeTool === "select" && selectedElementIds.size >= 1) {
+  // Calcular bounds del grupo seleccionado
+  const selectedElements = Array.from(selectedElementIds)
+    .map(id => elements.get(id))
+    .filter(Boolean) as CanvasElement[];
 
-          for (const [key, handlePos] of Object.entries(handles)) {
-            if (
-              Math.abs(point.x - handlePos.x) <= handleSize &&
-              Math.abs(point.y - handlePos.y) <= handleSize
-            ) {
-              setResizing({
-                id: element.id,
-                handle: key,
-                startPoint: point,
-                originalElement: element,
-              });
-              return;
-            }
-          }
-        }
-      }
+  const groupBounds = getGroupBounds(selectedElements);
+  const handles = getResizeHandles(groupBounds);
+  const handleSize = 8 / zoom;
+
+  for (const [key, handlePos] of Object.entries(handles)) {
+    if (
+      Math.abs(point.x - handlePos.x) <= handleSize &&
+      Math.abs(point.y - handlePos.y) <= handleSize
+    ) {
+      setResizing({
+        id: "group", // ← ID especial para grupo
+        handle: key,
+        startPoint: point,
+        originalElement: selectedElements[0], // Guardamos referencia
+        // ← AGREGAR originalElements para múltiples
+        originalElements: selectedElements,
+        originalGroupBounds: groupBounds,
+      });
+      return;
+    }
+  }
+}
 
       if (activeTool === "select") {
         const elementsArray = Array.from(elements.values()).reverse();
@@ -757,32 +801,86 @@ ephemeralElements.forEach((element) => {
       }
 
       if (resizing) {
-        const dx = point.x - resizing.startPoint.x;
-        const dy = point.y - resizing.startPoint.y;
-        const { originalElement, handle } = resizing;
+  const dx = point.x - resizing.startPoint.x;
+  const dy = point.y - resizing.startPoint.y;
+  const { handle, originalElements, originalGroupBounds } = resizing;
 
-        let newElement = { ...originalElement };
+  // ===== RESIZE DE GRUPO =====
+  if (originalElements && originalElements.length > 1 && originalGroupBounds) {
+    const origBounds = originalGroupBounds;
 
-        if (["rectangle", "ellipse", "image", "text"].includes(newElement.type)) {
-          const el = newElement as RectangleElement | EllipseElement | ImageElement | TextElement;
+    // Calcular nuevos bounds del grupo
+    let newGroupX = origBounds.x;
+    let newGroupY = origBounds.y;
+    let newGroupWidth = origBounds.width;
+    let newGroupHeight = origBounds.height;
 
-          if (handle.includes("e")) el.width = Math.max(1, (originalElement as any).width + dx);
-          if (handle.includes("w")) {
-            const newWidth = Math.max(1, (originalElement as any).width - dx);
-            el.x = (originalElement as any).x + ((originalElement as any).width - newWidth);
-            el.width = newWidth;
-          }
-          if (handle.includes("s")) el.height = Math.max(1, (originalElement as any).height + dy);
-          if (handle.includes("n")) {
-            const newHeight = Math.max(1, (originalElement as any).height - dy);
-            el.y = (originalElement as any).y + ((originalElement as any).height - newHeight);
-            el.height = newHeight;
-          }
+    if (handle.includes("e")) newGroupWidth = Math.max(10, origBounds.width + dx);
+    if (handle.includes("w")) {
+      newGroupWidth = Math.max(10, origBounds.width - dx);
+      newGroupX = origBounds.x + (origBounds.width - newGroupWidth);
+    }
+    if (handle.includes("s")) newGroupHeight = Math.max(10, origBounds.height + dy);
+    if (handle.includes("n")) {
+      newGroupHeight = Math.max(10, origBounds.height - dy);
+      newGroupY = origBounds.y + (origBounds.height - newGroupHeight);
+    }
 
-          updateElement(el.id, el);
-        }
-        return;
+    // Calcular escala
+    const scaleX = newGroupWidth / origBounds.width;
+    const scaleY = newGroupHeight / origBounds.height;
+
+    // Escalar cada elemento proporcionalmente
+    originalElements.forEach(origEl => {
+      const relX = (origEl.x - origBounds.x) / origBounds.width;
+      const relY = (origEl.y - origBounds.y) / origBounds.height;
+
+      const updates: any = {
+        x: newGroupX + relX * newGroupWidth,
+        y: newGroupY + relY * newGroupHeight,
+      };
+
+      // Escalar dimensiones si tiene width/height
+      if ('width' in origEl) updates.width = Math.max(1, (origEl as any).width * scaleX);
+      if ('height' in origEl) updates.height = Math.max(1, (origEl as any).height * scaleY);
+
+      // Escalar puntos si tiene points (arrow, freedraw)
+      if ('points' in origEl) {
+        updates.points = (origEl as any).points.map((p: Point) => ({
+          x: p.x * scaleX,
+          y: p.y * scaleY,
+        }));
       }
+
+      updateElement(origEl.id, updates);
+    });
+    return;
+  }
+
+  // ===== RESIZE NORMAL (1 elemento) =====
+  const { originalElement } = resizing;
+  let newElement = { ...originalElement };
+
+  if (["rectangle", "ellipse", "image", "text"].includes(newElement.type)) {
+    const el = newElement as RectangleElement | EllipseElement | ImageElement | TextElement;
+
+    if (handle.includes("e")) el.width = Math.max(1, (originalElement as any).width + dx);
+    if (handle.includes("w")) {
+      const newWidth = Math.max(1, (originalElement as any).width - dx);
+      el.x = (originalElement as any).x + ((originalElement as any).width - newWidth);
+      el.width = newWidth;
+    }
+    if (handle.includes("s")) el.height = Math.max(1, (originalElement as any).height + dy);
+    if (handle.includes("n")) {
+      const newHeight = Math.max(1, (originalElement as any).height - dy);
+      el.y = (originalElement as any).y + ((originalElement as any).height - newHeight);
+      el.height = newHeight;
+    }
+
+    updateElement(el.id, el);
+  }
+  return;
+}
 
       if (selectionBox) {
         setSelectionBox({ ...selectionBox, current: point });
@@ -1348,6 +1446,30 @@ function getElementBounds(element: CanvasElement) {
     default:
       return { x: (element as any).x || 0, y: (element as any).y || 0, width: 0, height: 0 };
   }
+}
+
+function getGroupBounds(elements: CanvasElement[]) {
+  if (elements.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  elements.forEach(el => {
+    const bounds = getElementBounds(el);
+    minX = Math.min(minX, bounds.x);
+    minY = Math.min(minY, bounds.y);
+    maxX = Math.max(maxX, bounds.x + bounds.width);
+    maxY = Math.max(maxY, bounds.y + bounds.height);
+  });
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
 }
 
 function isPointInElement(point: Point, element: CanvasElement): boolean {
