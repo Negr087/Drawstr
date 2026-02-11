@@ -41,16 +41,22 @@ export default function CanvasPage({ params }: PageProps) {
 
   const { setCanvasId, setCanvasName, clearCanvas, elements, loadElements } = useCanvasStore();
   const { user, subscribeToCanvas, isConnected, loadCanvasState } = useNostr();
+  const [canvasAuthor, setCanvasAuthor] = useState<string | undefined>(undefined);
 
   useLastCanvas(canvasId, user?.pubkey);
 
   // Check if view-only mode
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setIsViewOnly(params.get("view") === "true");
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    setIsViewOnly(params.get("view") === "true");
+    
+    const author = params.get("author");
+    if (author) {
+      setCanvasAuthor(author);
     }
-  }, []);
+  }
+}, []);
 
   // Initialize canvas
   useEffect(() => {
@@ -60,31 +66,31 @@ export default function CanvasPage({ params }: PageProps) {
 
   // Auto-load canvas state when user logs in
   useEffect(() => {
-    if (!user || !canvasId) return;
+  if (!canvasId) return;
+  if (!user && !canvasAuthor) return; // Necesita user o author
 
-    const autoLoad = async () => {
-      try {
-        const data = await loadCanvasState(canvasId);
+  const autoLoad = async () => {
+    try {
+      // Si hay author en el URL, cargar su canvas
+      // Si no, cargar el propio
+      const data = await loadCanvasState(canvasId, canvasAuthor);
+      
+      if (data && data.elements && data.elements.length > 0) {
+        loadElements(data.elements);
         
-        if (data && data.elements && data.elements.length > 0) {
-          // Solo cargar si hay elementos guardados
-          loadElements(data.elements);
-          
-          // Actualizar el nombre del canvas si existe
-          if (data.canvasName) {
-            setCanvasName(data.canvasName);
-          }
-          
-          console.log(`Auto-loaded canvas: ${data.canvasName} with ${data.elements.length} elements`);
+        if (data.canvasName) {
+          setCanvasName(data.canvasName);
         }
-      } catch (error) {
-        console.error("Failed to auto-load canvas:", error);
-        // Silencioso - no molestar al usuario si falla
+        
+        console.log(`Auto-loaded canvas: ${data.canvasName}`);
       }
-    };
+    } catch (error) {
+      console.error("Failed to auto-load canvas:", error);
+    }
+  };
 
-    autoLoad();
-  }, [user, canvasId, loadCanvasState, loadElements, setCanvasName]);
+  autoLoad();
+}, [user, canvasId, canvasAuthor, loadCanvasState, loadElements, setCanvasName]);
 
   // Subscribe to canvas events when user is logged in
   useEffect(() => {

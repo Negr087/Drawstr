@@ -45,11 +45,12 @@ export function Header({ onExport, onShare, onClearCanvas, onPostToNostr }: Head
   }, [collaboratorCursors]);
 
   const handleCopyLink = async () => {
-    const url = `${window.location.origin}/canvas/${canvasId}`;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // Incluir pubkey del autor en el link
+  const url = `${window.location.origin}/canvas/${canvasId}?author=${user?.pubkey}`;
+  await navigator.clipboard.writeText(url);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 2000);
+};
 
   return (
     <header className="absolute top-0 left-0 right-0 h-14 flex items-center justify-between px-4 bg-card/80 backdrop-blur-sm border-b border-border z-40">

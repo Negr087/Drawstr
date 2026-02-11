@@ -72,7 +72,7 @@ interface NostrContextType {
   publishNote: (content: string, imageUrl?: string) => Promise<boolean>;
   // NUEVAS FUNCIONES PARA PERSISTENCIA
   saveCanvasState: (canvasId: string, canvasName: string) => Promise<boolean>;
-  loadCanvasState: (canvasId: string) => Promise<any>;
+  loadCanvasState: (canvasId: string, authorPubkey?: string) => Promise<any>;
   listUserCanvases: () => Promise<any[]>;
   loginWithNostrConnect: () => Promise<void>;
   nostrConnectUri: string | null;
@@ -694,16 +694,25 @@ setNostrConnectCleanup(() => cleanup);
 
   // Cargar el estado de un canvas específico
   const loadCanvasState = useCallback(
-    async (canvasId: string) => {
-      if (!pool || !user) return null;
+  async (canvasId: string, authorPubkey?: string) => {
+    if (!pool) return null;
 
-      try {
-        const events = await pool.querySync(relays, {
-          kinds: [NOSTR_KIND_CANVAS_STATE],
-          authors: [user.pubkey], // Solo tus propios canvas
-          "#d": [canvasId],
-          limit: 1,
-        });
+    try {
+      const filter: any = {
+        kinds: [NOSTR_KIND_CANVAS_STATE],
+        "#d": [canvasId],
+        limit: 1,
+      };
+
+      // Si se especifica el autor, filtrar por él
+      // Si no, buscar de cualquier autor (canvas compartido)
+      if (authorPubkey) {
+        filter.authors = [authorPubkey];
+      } else if (user) {
+        filter.authors = [user.pubkey];
+      }
+
+      const events = await pool.querySync(relays, filter);
 
         if (events.length > 0) {
           const canvasData = JSON.parse(events[0].content);
