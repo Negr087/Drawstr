@@ -24,12 +24,11 @@ import type {
 import {
   NOSTR_KIND_CANVAS_ACTION,
   NOSTR_KIND_CURSOR_POSITION,
-  NOSTR_KIND_CANVAS_STATE, // NUEVO
+  NOSTR_KIND_CANVAS_STATE,
 } from "./types";
 import { useCanvasStore } from "./canvas-store";
 import { createNostrConnectClient, generateBunkerUri, listenForConnection, hexToBytes as hexToBytesConnect } from "./nostr-connect";
 
-// Default relays - using more stable ones
 const DEFAULT_RELAYS = [
   "wss://relay.damus.io",
   "wss://nos.lol",
@@ -38,7 +37,6 @@ const DEFAULT_RELAYS = [
   "wss://relay.primal.net",
 ];
 
-// Cursor colors for collaborators
 const CURSOR_COLORS = [
   "#f59e0b",
   "#8b5cf6",
@@ -70,7 +68,6 @@ interface NostrContextType {
   ) => Promise<void>;
   subscribeToCanvas: (canvasId: string) => () => void;
   publishNote: (content: string, imageUrl?: string) => Promise<boolean>;
-  // NUEVAS FUNCIONES PARA PERSISTENCIA
   saveCanvasState: (canvasId: string, canvasName: string) => Promise<boolean>;
   loadCanvasState: (canvasId: string, authorPubkey?: string) => Promise<any>;
   listUserCanvases: () => Promise<any[]>;
@@ -90,7 +87,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const [privateKey, setPrivateKey] = useState<Uint8Array | null>(null);
   const [nostrConnectUri, setNostrConnectUri] = useState<string | null>(null);
   const [nostrConnectClient, setNostrConnectClient] = useState<any>(null);
-const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | null>(null);
+  const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | null>(null);
 
   const { addElement, updateElement, deleteElement, updateCursor, setCurrentUser } =
     useCanvasStore();
@@ -103,7 +100,7 @@ const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | nu
       const events = await pool.querySync(
         relays,
         {
-          kinds: [0], // Kind 0 is metadata
+          kinds: [0],
           authors: [pubkey],
           limit: 1,
         }
@@ -127,15 +124,13 @@ const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | nu
   useEffect(() => {
     const simplePool = new SimplePool();
     setPool(simplePool);
-    
 
-    // Test relay connections
     const testConnections = async () => {
       try {
         setIsConnected(true);
       } catch (err) {
         console.warn("Some relays failed to connect:", err);
-        setIsConnected(true); // Still consider connected if at least one relay works
+        setIsConnected(true);
       }
     };
 
@@ -147,232 +142,17 @@ const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | nu
   }, [relays]);
 
   useEffect(() => {
-  // Intentar recuperar sesión guardada
-  const savedUser = localStorage.getItem('nostr_user');
-  if (savedUser) {
-    try {
-      const userData = JSON.parse(savedUser);
-      setUser(userData);
-      setCurrentUser(userData);
-    } catch (err) {
-      console.error('Failed to restore session:', err);
-    }
-  }
-}, []);
-
-  // Login with NIP-07 browser extension
-  const loginWithExtension = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      if (typeof window === "undefined" || !window.nostr) {
-        throw new Error(
-          "No Nostr extension found. Please install a NIP-07 compatible extension like Alby or nos2x."
-        );
-      }
-
-      const pubkey = await window.nostr.getPublicKey();
-      const npub = nip19.npubEncode(pubkey);
-
-      // Fetch user metadata
-      const metadata = await fetchUserMetadata(pubkey);
-
-      const nostrUser: NostrUser = {
-        pubkey,
-        npub,
-        name: metadata?.name,
-        picture: metadata?.picture,
-      };
-
-      setUser(nostrUser);
-      setCurrentUser(nostrUser);
-      setPrivateKey(null);
-      setTimeout(async () => {
-  const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
-  if (lastCanvas) {
-    const data = await loadCanvasState(lastCanvas);
-    if (data?.elements) {
-      useCanvasStore.getState().loadElements(data.elements);
-      console.log("Auto-loaded last canvas after login");
-    }
-  }
-}, 500); // Pequeño delay para que termine de inicializar
-      localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to login");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [setCurrentUser, fetchUserMetadata]);
-
-  // Login with nsec key
-  const loginWithNsec = useCallback(
-    async (nsec: string) => {
-      setIsLoading(true);
-      setError(null);
-
+    const savedUser = localStorage.getItem('nostr_user');
+    if (savedUser) {
       try {
-        let sk: Uint8Array;
-
-        if (nsec.startsWith("nsec")) {
-          const decoded = nip19.decode(nsec);
-          if (decoded.type !== "nsec") {
-            throw new Error("Invalid nsec key");
-          }
-          sk = decoded.data as Uint8Array;
-        } else {
-          // Assume hex format
-          sk = hexToBytes(nsec);
-        }
-
-        const pubkey = getPublicKey(sk);
-        const npub = nip19.npubEncode(pubkey);
-
-        // Fetch user metadata
-        const metadata = await fetchUserMetadata(pubkey);
-
-        const nostrUser: NostrUser = {
-          pubkey,
-          npub,
-          name: metadata?.name,
-          picture: metadata?.picture,
-        };
-
-        setUser(nostrUser);
-        localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-        setCurrentUser(nostrUser);
-        setPrivateKey(sk);
-        setTimeout(async () => {
-  const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
-  if (lastCanvas) {
-    const data = await loadCanvasState(lastCanvas);
-    if (data?.elements) {
-      useCanvasStore.getState().loadElements(data.elements);
-      console.log("Auto-loaded last canvas after login");
-    }
-  }
-}, 500);
+        const userData = JSON.parse(savedUser);
+        setUser(userData);
+        setCurrentUser(userData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Invalid key format");
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [setCurrentUser, fetchUserMetadata]
-  );
-
-  // Login with Nostr Connect (NIP-46)
-const loginWithNostrConnect = useCallback(async () => {
-  setIsLoading(true);
-  setError(null);
-
-  try {
-    // Limpiar conexión anterior si existe
-    if (nostrConnectCleanup) {
-      nostrConnectCleanup();
-    }
-
-    // Crear cliente NIP-46
-    const client = createNostrConnectClient({
-  relay: "wss://relay.damus.io", // Este relay está en ambos
-  onConnect: async (remotePubkey) => {
-        console.log("Connected with pubkey:", remotePubkey);
-        
-        // Obtener metadata del usuario remoto
-        const metadata = await fetchUserMetadata(remotePubkey);
-        const npub = nip19.npubEncode(remotePubkey);
-        
-        const nostrUser: NostrUser = {
-          pubkey: remotePubkey,
-          npub,
-          name: metadata?.name,
-          picture: metadata?.picture,
-        };
-        
-        setUser(nostrUser);
-        localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-        setCurrentUser(nostrUser);
-        setIsLoading(false);
-        setNostrConnectUri(null);
-        
-        // Limpiar
-        if (nostrConnectCleanup) {
-          nostrConnectCleanup();
-          setNostrConnectCleanup(null);
-        }
-      },
-      onError: (errorMsg) => {
-        setError(errorMsg);
-        setIsLoading(false);
-      },
-    });
-
-    // Generar URI
-    const uri = generateBunkerUri(client);
-    setNostrConnectUri(uri);
-    setNostrConnectClient(client);
-
-    // Escuchar conexión
-    // Escuchar en TODOS los relays
-const secretKey = hexToBytesConnect(client.secret);
-
-// Modificar el cliente para escuchar en múltiples relays
-const multiRelayClient = { ...client, relay: relays[0] };
-
-// Suscribirse a todos los relays
-const subs = relays.map(relay => 
-  client.pool.subscribeMany(
-    [relay],
-    [
-      {
-        kinds: [24133],
-        "#p": [client.pubkey],
-        since: Math.floor(Date.now() / 1000) - 60,
-      },
-    ] as any,
-    {
-      async onevent(event: any) {
-        console.log(`Event from ${relay}:`, event);
-        try {
-          // Conectar directamente con el pubkey de Amber
-          const remotePubkey = event.pubkey;
-          console.log("Connection from:", remotePubkey);
-          
-          const metadata = await fetchUserMetadata(remotePubkey);
-          const npub = nip19.npubEncode(remotePubkey);
-          
-          const nostrUser: NostrUser = {
-            pubkey: remotePubkey,
-            npub,
-            name: metadata?.name,
-            picture: metadata?.picture,
-          };
-          
-          setUser(nostrUser);
-          localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-          setCurrentUser(nostrUser);
-          setIsLoading(false);
-          setNostrConnectUri(null);
-        } catch (err) {
-          console.error("Failed to connect:", err);
-        }
+        console.error('Failed to restore session:', err);
       }
     }
-  )
-);
-
-const cleanup = await listenForConnection(client, secretKey, relays);
-
-setNostrConnectCleanup(() => cleanup);
-
-  } catch (err) {
-    setError(err instanceof Error ? err.message : "Failed to start connection");
-    setIsLoading(false);
-  }
-}, [relays, fetchUserMetadata, setCurrentUser, nostrConnectCleanup]);
-
-  
+  }, []);
 
   // Sign event
   const signEvent = useCallback(
@@ -390,6 +170,238 @@ setNostrConnectCleanup(() => cleanup);
     },
     [privateKey]
   );
+
+  // Cargar el estado de un canvas específico
+  // Declarado antes de los logins para evitar referencias a función no definida
+  const loadCanvasState = useCallback(
+    async (canvasId: string, authorPubkey?: string) => {
+      if (!pool) return null;
+
+      try {
+        const filter: any = {
+          kinds: [NOSTR_KIND_CANVAS_STATE],
+          "#d": [canvasId],
+          limit: 1,
+        };
+
+        const resolvedPubkey = authorPubkey ?? user?.pubkey;
+        if (resolvedPubkey) {
+          filter.authors = [resolvedPubkey];
+        }
+
+        const events = await pool.querySync(relays, filter);
+
+        if (events.length > 0) {
+          const canvasData = JSON.parse(events[0].content);
+          console.log(`Canvas loaded: ${canvasData.canvasName} with ${canvasData.elements.length} elements`);
+          return canvasData;
+        }
+        return null;
+      } catch (err) {
+        console.error("Failed to load canvas state:", err);
+        return null;
+      }
+    },
+    [pool, user, relays]
+  );
+
+  // Login with NIP-07 browser extension
+  const loginWithExtension = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      if (typeof window === "undefined" || !window.nostr) {
+        throw new Error(
+          "No Nostr extension found. Please install a NIP-07 compatible extension like Alby or nos2x."
+        );
+      }
+
+      const pubkey = await window.nostr.getPublicKey();
+      const npub = nip19.npubEncode(pubkey);
+
+      const metadata = await fetchUserMetadata(pubkey);
+
+      const nostrUser: NostrUser = {
+        pubkey,
+        npub,
+        name: metadata?.name,
+        picture: metadata?.picture,
+      };
+
+      setUser(nostrUser);
+      setCurrentUser(nostrUser);
+      setPrivateKey(null);
+      localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
+
+      setTimeout(async () => {
+        const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
+        if (lastCanvas) {
+          const data = await loadCanvasState(lastCanvas, nostrUser.pubkey);
+          if (data?.elements) {
+            useCanvasStore.getState().loadElements(data.elements);
+            console.log("Auto-loaded last canvas after login");
+          }
+        }
+      }, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to login");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [setCurrentUser, fetchUserMetadata, loadCanvasState]);
+
+  // Login with nsec key
+  const loginWithNsec = useCallback(
+    async (nsec: string) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        let sk: Uint8Array;
+
+        if (nsec.startsWith("nsec")) {
+          const decoded = nip19.decode(nsec);
+          if (decoded.type !== "nsec") {
+            throw new Error("Invalid nsec key");
+          }
+          sk = decoded.data as Uint8Array;
+        } else {
+          sk = hexToBytes(nsec);
+        }
+
+        const pubkey = getPublicKey(sk);
+        const npub = nip19.npubEncode(pubkey);
+
+        const metadata = await fetchUserMetadata(pubkey);
+
+        const nostrUser: NostrUser = {
+          pubkey,
+          npub,
+          name: metadata?.name,
+          picture: metadata?.picture,
+        };
+
+        setUser(nostrUser);
+        localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
+        setCurrentUser(nostrUser);
+        setPrivateKey(sk);
+
+        setTimeout(async () => {
+          const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
+          if (lastCanvas) {
+            const data = await loadCanvasState(lastCanvas, nostrUser.pubkey);
+            if (data?.elements) {
+              useCanvasStore.getState().loadElements(data.elements);
+              console.log("Auto-loaded last canvas after login");
+            }
+          }
+        }, 500);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Invalid key format");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [setCurrentUser, fetchUserMetadata, loadCanvasState]
+  );
+
+  // Login with Nostr Connect (NIP-46)
+  const loginWithNostrConnect = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      if (nostrConnectCleanup) {
+        nostrConnectCleanup();
+      }
+
+      const client = createNostrConnectClient({
+        relay: "wss://relay.damus.io",
+        onConnect: async (remotePubkey) => {
+          console.log("Connected with pubkey:", remotePubkey);
+
+          const metadata = await fetchUserMetadata(remotePubkey);
+          const npub = nip19.npubEncode(remotePubkey);
+
+          const nostrUser: NostrUser = {
+            pubkey: remotePubkey,
+            npub,
+            name: metadata?.name,
+            picture: metadata?.picture,
+          };
+
+          setUser(nostrUser);
+          localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
+          setCurrentUser(nostrUser);
+          setIsLoading(false);
+          setNostrConnectUri(null);
+
+          if (nostrConnectCleanup) {
+            nostrConnectCleanup();
+            setNostrConnectCleanup(null);
+          }
+        },
+        onError: (errorMsg) => {
+          setError(errorMsg);
+          setIsLoading(false);
+        },
+      });
+
+      const uri = generateBunkerUri(client);
+      setNostrConnectUri(uri);
+      setNostrConnectClient(client);
+
+      const secretKey = hexToBytesConnect(client.secret);
+
+      const subs = relays.map(relay =>
+        client.pool.subscribeMany(
+          [relay],
+          [
+            {
+              kinds: [24133],
+              "#p": [client.pubkey],
+              since: Math.floor(Date.now() / 1000) - 60,
+            },
+          ] as any,
+          {
+            async onevent(event: any) {
+              console.log(`Event from ${relay}:`, event);
+              try {
+                const remotePubkey = event.pubkey;
+                console.log("Connection from:", remotePubkey);
+
+                const metadata = await fetchUserMetadata(remotePubkey);
+                const npub = nip19.npubEncode(remotePubkey);
+
+                const nostrUser: NostrUser = {
+                  pubkey: remotePubkey,
+                  npub,
+                  name: metadata?.name,
+                  picture: metadata?.picture,
+                };
+
+                setUser(nostrUser);
+                localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
+                setCurrentUser(nostrUser);
+                setIsLoading(false);
+                setNostrConnectUri(null);
+              } catch (err) {
+                console.error("Failed to connect:", err);
+              }
+            }
+          }
+        )
+      );
+
+      const cleanup = await listenForConnection(client, secretKey, relays);
+      setNostrConnectCleanup(() => cleanup);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start connection");
+      setIsLoading(false);
+    }
+  }, [relays, fetchUserMetadata, setCurrentUser, nostrConnectCleanup]);
 
   // Publish canvas action
   const publishCanvasAction = useCallback(
@@ -421,11 +433,9 @@ setNostrConnectCleanup(() => cleanup);
 
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) {
-          // We use Promise.allSettled to avoid failing if one relay fails/rate-limits
           await Promise.allSettled(pool.publish(relays, signedEvent));
         }
       } catch (err) {
-        // Silently fail for rate limits or connection issues to keep UI responsive
         console.warn("Failed to publish canvas action:", err);
       }
     },
@@ -458,13 +468,10 @@ setNostrConnectCleanup(() => cleanup);
 
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) {
-          // We use Promise.allSettled to avoid failing if one relay fails/rate-limits
           await Promise.allSettled(pool.publish(relays, signedEvent));
         }
       } catch (err) {
-        // Silently fail for rate limits or connection issues to keep UI responsive
-        // Cursor updates are not critical
-        // console.warn("Failed to publish cursor:", err);
+        // Silently fail - cursor updates are not critical
       }
     },
     [pool, user, relays, signEvent]
@@ -475,7 +482,6 @@ setNostrConnectCleanup(() => cleanup);
     (canvasId: string) => {
       if (!pool || !user) return () => { };
 
-      // Subscribe to canvas actions
       const actionSub = pool.subscribeMany(
         relays,
         [
@@ -490,7 +496,6 @@ setNostrConnectCleanup(() => cleanup);
               const data = JSON.parse(event.content);
               const element = data.element as CanvasElement;
 
-              // Don't process our own events
               if (event.pubkey === user.pubkey) return;
 
               switch (data.action) {
@@ -508,13 +513,10 @@ setNostrConnectCleanup(() => cleanup);
               // Invalid event
             }
           },
-          oneose() {
-            // End of stored events
-          }
+          oneose() { }
         }
       );
 
-      // Subscribe to cursor positions
       const cursorSub = pool.subscribeMany(
         relays,
         [
@@ -527,7 +529,6 @@ setNostrConnectCleanup(() => cleanup);
         {
           onevent(event) {
             try {
-              // Don't process our own cursor
               if (event.pubkey === user.pubkey) return;
 
               const data = JSON.parse(event.content);
@@ -547,9 +548,7 @@ setNostrConnectCleanup(() => cleanup);
               // Invalid event
             }
           },
-          oneose() {
-            // End of stored events
-          }
+          oneose() { }
         }
       );
 
@@ -573,28 +572,23 @@ setNostrConnectCleanup(() => cleanup);
           ["t", "art"],
         ];
 
-        // Add image with proper NIP-92 format if provided
         if (imageUrl) {
-          // Add image tag
           tags.push(["image", imageUrl]);
-
-          // Add imeta tag with detailed metadata (NIP-92)
           tags.push([
             "imeta",
             `url ${imageUrl}`,
             "m image/png",
-            "blurhash LEHV6nWB2yk8pyo0adR*.7kCMdnj", // Could be generated
-            "dim 1024x768", // Could be calculated
+            "blurhash LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+            "dim 1024x768",
           ]);
 
-          // Also add the image URL to the content for better client compatibility
           if (!content.includes(imageUrl)) {
             content = `${content}\n\n${imageUrl}`;
           }
         }
 
         const unsignedEvent: UnsignedEvent = {
-          kind: 1, // Text note
+          kind: 1,
           created_at: Math.floor(Date.now() / 1000),
           tags,
           content,
@@ -604,7 +598,6 @@ setNostrConnectCleanup(() => cleanup);
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) {
           const results = await Promise.allSettled(pool.publish(relays, signedEvent));
-          // Consider success if at least one relay accepted it
           const successCount = results.filter(r => r.status === 'fulfilled').length;
           return successCount > 0;
         }
@@ -617,17 +610,12 @@ setNostrConnectCleanup(() => cleanup);
     [pool, user, relays, signEvent]
   );
 
-  // ============================================
-  // NUEVAS FUNCIONES PARA PERSISTENCIA (NIP-33)
-  // ============================================
-
   // Guardar el estado completo del canvas
   const saveCanvasState = useCallback(
     async (canvasId: string, canvasName: string): Promise<boolean> => {
       if (!pool || !user) return false;
 
       try {
-        // Obtener elementos del store y filtrar los borrados
         const elementsArray = Array.from(useCanvasStore.getState().elements.values())
           .filter(el => !el.isDeleted);
 
@@ -640,10 +628,10 @@ setNostrConnectCleanup(() => cleanup);
         };
 
         const unsignedEvent: UnsignedEvent = {
-          kind: NOSTR_KIND_CANVAS_STATE, // 30078
+          kind: NOSTR_KIND_CANVAS_STATE,
           created_at: Math.floor(Date.now() / 1000),
           tags: [
-            ["d", canvasId], // Identificador único del canvas (parameterized)
+            ["d", canvasId],
             ["title", canvasName],
             ["client", "NostrDraw"],
           ],
@@ -656,6 +644,9 @@ setNostrConnectCleanup(() => cleanup);
           const results = await Promise.allSettled(pool.publish(relays, signedEvent));
           const successCount = results.filter(r => r.status === 'fulfilled').length;
           console.log(`Canvas saved to ${successCount} relays`);
+          if (successCount > 0) {
+            localStorage.setItem(`lastCanvas:${user.pubkey}`, canvasId);
+          }
           return successCount > 0;
         }
         return false;
@@ -669,64 +660,26 @@ setNostrConnectCleanup(() => cleanup);
 
   // Logout
   const logout = useCallback(async () => {
-  // Auto-guardar antes de desloguear
-  const currentCanvasId = useCanvasStore.getState().canvasId;
-  const currentCanvasName = useCanvasStore.getState().canvasName;
-  
-  if (user && currentCanvasId) {
-    console.log("Auto-saving before logout...");
-    await saveCanvasState(currentCanvasId, currentCanvasName);
-  }
-  
-  setUser(null);
-  setCurrentUser(null);
-  setPrivateKey(null);
-  localStorage.removeItem('nostr_user');
-  
-  // Limpiar Nostr Connect
-  if (nostrConnectCleanup) {
-    nostrConnectCleanup();
-    setNostrConnectCleanup(null);
-  }
-  setNostrConnectUri(null);
-  setNostrConnectClient(null);
-}, [setCurrentUser, nostrConnectCleanup, user, saveCanvasState]);
+    const currentCanvasId = useCanvasStore.getState().canvasId;
+    const currentCanvasName = useCanvasStore.getState().canvasName;
 
-  // Cargar el estado de un canvas específico
-  const loadCanvasState = useCallback(
-  async (canvasId: string, authorPubkey?: string) => {
-    if (!pool) return null;
+    if (user && currentCanvasId) {
+      console.log("Auto-saving before logout...");
+      await saveCanvasState(currentCanvasId, currentCanvasName);
+    }
 
-    try {
-      const filter: any = {
-        kinds: [NOSTR_KIND_CANVAS_STATE],
-        "#d": [canvasId],
-        limit: 1,
-      };
+    setUser(null);
+    setCurrentUser(null);
+    setPrivateKey(null);
+    localStorage.removeItem('nostr_user');
 
-      // Si se especifica el autor, filtrar por él
-      // Si no, buscar de cualquier autor (canvas compartido)
-      if (authorPubkey) {
-        filter.authors = [authorPubkey];
-      } else if (user) {
-        filter.authors = [user.pubkey];
-      }
-
-      const events = await pool.querySync(relays, filter);
-
-        if (events.length > 0) {
-          const canvasData = JSON.parse(events[0].content);
-          console.log(`Canvas loaded: ${canvasData.canvasName} with ${canvasData.elements.length} elements`);
-          return canvasData;
-        }
-        return null;
-      } catch (err) {
-        console.error("Failed to load canvas state:", err);
-        return null;
-      }
-    },
-    [pool, user, relays]
-  );
+    if (nostrConnectCleanup) {
+      nostrConnectCleanup();
+      setNostrConnectCleanup(null);
+    }
+    setNostrConnectUri(null);
+    setNostrConnectClient(null);
+  }, [setCurrentUser, nostrConnectCleanup, user, saveCanvasState]);
 
   // Listar todos los canvas del usuario
   const listUserCanvases = useCallback(
@@ -746,9 +699,9 @@ setNostrConnectCleanup(() => cleanup);
             canvasName: data.canvasName,
             timestamp: data.timestamp,
             elementCount: data.elements.length,
-            event: event, // Por si necesitas el evento completo
+            event: event,
           };
-        }).sort((a, b) => b.timestamp - a.timestamp); // Más reciente primero
+        }).sort((a, b) => b.timestamp - a.timestamp);
       } catch (err) {
         console.error("Failed to list canvases:", err);
         return [];
@@ -773,7 +726,6 @@ setNostrConnectCleanup(() => cleanup);
         publishCursorPosition,
         subscribeToCanvas,
         publishNote,
-        // NUEVAS FUNCIONES
         saveCanvasState,
         loadCanvasState,
         listUserCanvases,
@@ -794,7 +746,6 @@ export function useNostr() {
   return context;
 }
 
-// Helper function to convert hex to bytes
 function hexToBytes(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
     throw new Error("Invalid hex string");
@@ -806,7 +757,6 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-// NIP-07 type declaration
 declare global {
   interface Window {
     nostr?: {
