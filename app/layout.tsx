@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'NostrDraw - Decentralized Collaborative Canvas',
+  title: 'NostrDraw',
   description: 'A collaborative infinite canvas for drawing, powered by the Nostr protocol. Draw together in real-time without accounts or servers.',
   generator: 'NostrDraw',
   icons: {
