@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useNostr } from "@/lib/nostr-context";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,6 @@ import {
   Minus,
   Plus,
   RotateCcw,
-  Save,
-  FolderOpen,
   Check,
   Cloud,
   CloudOff,
@@ -45,6 +43,17 @@ const tools: { id: Tool; icon: React.ReactNode; label: string; shortcut: string 
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser", shortcut: "E" },
   { id: "hand", icon: <Hand size={18} />, label: "Pan", shortcut: "H" },
 ];
+
+// Genera un "hash" del estado actual del canvas basado en los updatedAt de todos los elementos
+// Si cualquier elemento cambia (color, posición, etc.) el hash cambia
+function getElementsHash(elements: Map<string, any>): string {
+  const active = Array.from(elements.values()).filter(el => !el.isDeleted);
+  if (active.length === 0) return "";
+  return active
+    .map(el => `${el.id}:${el.updatedAt}`)
+    .sort()
+    .join("|");
+}
 
 export function Toolbar() {
   const {
@@ -68,53 +77,66 @@ export function Toolbar() {
 
   const { saveCanvasState, user } = useNostr();
 
-  // Estados para los modales
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loadModalOpen, setLoadModalOpen] = useState(false);
 
-  // Estados para auto-save
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const lastElementsCountRef = useRef(0);
+
+  const lastHashRef = useRef<string>("");
+  const savedHashRef = useRef<string>("");  // hash del último guardado exitoso
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
 
-  // Auto-save cada 30 segundos si hay cambios
+  const doSave = useCallback(async (currentHash: string) => {
+    if (isSavingRef.current || !user || !canvasId || user.readOnly) return;
+    isSavingRef.current = true;
+    setAutoSaveStatus("saving");
+
+    try {
+      const success = await saveCanvasState(canvasId, canvasName);
+      if (success) {
+        savedHashRef.current = currentHash;
+        setAutoSaveStatus("saved");
+        setLastSaved(new Date());
+        setTimeout(() => setAutoSaveStatus("idle"), 3000);
+      } else {
+        setAutoSaveStatus("error");
+        setTimeout(() => setAutoSaveStatus("idle"), 3000);
+      }
+    } catch (err) {
+      console.error("Auto-save failed:", err);
+      setAutoSaveStatus("error");
+      setTimeout(() => setAutoSaveStatus("idle"), 3000);
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [user, canvasId, canvasName, saveCanvasState]);
+
+  // Auto-save: detecta CUALQUIER cambio en elementos (no solo count)
   useEffect(() => {
-    if (!user || !canvasId) return;
+    if (!user || !canvasId || user.readOnly) return;
 
-    const currentElementCount = Array.from(elements.values()).filter(el => !el.isDeleted).length;
+    const currentHash = getElementsHash(elements);
 
-    // Si cambió la cantidad de elementos, programar auto-save
-    if (currentElementCount !== lastElementsCountRef.current && currentElementCount > 0) {
-      // Cancelar timeout anterior si existe
+    // Sin elementos, nada que guardar
+    if (!currentHash) return;
+
+    // Si el hash no cambió desde el último guardado, no hacer nada
+    if (currentHash === savedHashRef.current) return;
+
+    // Si el hash cambió respecto al tick anterior, resetear timer
+    if (currentHash !== lastHashRef.current) {
+      lastHashRef.current = currentHash;
+
       if (autoSaveTimeoutRef.current) {
         clearTimeout(autoSaveTimeoutRef.current);
       }
 
-      // Programar nuevo auto-save en 30 segundos
-      autoSaveTimeoutRef.current = setTimeout(async () => {
-        setAutoSaveStatus("saving");
-        
-        try {
-          const success = await saveCanvasState(canvasId, canvasName);
-          
-          if (success) {
-            setAutoSaveStatus("saved");
-            setLastSaved(new Date());
-            // Volver a idle después de 3 segundos
-            setTimeout(() => setAutoSaveStatus("idle"), 3000);
-          } else {
-            setAutoSaveStatus("error");
-            setTimeout(() => setAutoSaveStatus("idle"), 3000);
-          }
-        } catch (error) {
-          console.error("Auto-save failed:", error);
-          setAutoSaveStatus("error");
-          setTimeout(() => setAutoSaveStatus("idle"), 3000);
-        }
-      }, 30000); // 30 segundos
-
-      lastElementsCountRef.current = currentElementCount;
+      // Guardar 5 segundos después del último cambio
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        doSave(currentHash);
+      }, 5000);
     }
 
     return () => {
@@ -122,179 +144,91 @@ export function Toolbar() {
         clearTimeout(autoSaveTimeoutRef.current);
       }
     };
+  }, [elements, user, canvasId, doSave]);
+
+  // Guardar también cuando el usuario cierra/abandona la pestaña
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const currentHash = getElementsHash(elements);
+      if (currentHash && currentHash !== savedHashRef.current && user && !user.readOnly && canvasId) {
+        // beforeunload no puede await, pero intentamos disparar el save
+        saveCanvasState(canvasId, canvasName);
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [elements, user, canvasId, canvasName, saveCanvasState]);
 
-  // Formatear tiempo desde último guardado
   const getTimeSinceLastSave = () => {
     if (!lastSaved) return null;
-    
-    const now = new Date();
-    const diffMs = now.getTime() - lastSaved.getTime();
+    const diffMs = Date.now() - lastSaved.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
     if (diffMins < 1) return "Just now";
     if (diffMins === 1) return "1 min ago";
     return `${diffMins} mins ago`;
   };
 
-  // Keyboard shortcuts with proper cleanup
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in input or textarea
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const key = e.key.toLowerCase();
-      
-      // Shortcuts para herramientas
       const tool = tools.find((t) => t.shortcut.toLowerCase() === key);
-      if (tool) {
-        setActiveTool(tool.id);
-        return;
-      }
-
-      // Shortcuts para Save/Load
+      if (tool) { setActiveTool(tool.id); return; }
       if (e.ctrlKey || e.metaKey) {
-        if (key === 's') {
-          e.preventDefault();
-          setSaveModalOpen(true);
-        } else if (key === 'o') {
-          e.preventDefault();
-          setLoadModalOpen(true);
-        }
+        if (key === 's') { e.preventDefault(); setSaveModalOpen(true); }
+        else if (key === 'o') { e.preventDefault(); setLoadModalOpen(true); }
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [setActiveTool]);
 
   const handleZoomIn = () => setZoom(Math.min(5, zoom + 0.25));
   const handleZoomOut = () => setZoom(Math.max(0.1, zoom - 0.25));
-  const handleResetView = () => {
-    setZoom(1);
-    setViewportOffset({ x: 0, y: 0 });
-  };
+  const handleResetView = () => { setZoom(1); setViewportOffset({ x: 0, y: 0 }); };
 
-  // Aplicar color a elementos seleccionados si hay alguno
   const handleStrokeColorChange = (color: string) => {
     setStrokeColor(color);
     if (selectedElementIds.size > 0) {
-      selectedElementIds.forEach((id) => {
-        updateElement(id, { strokeColor: color });
-      });
+      selectedElementIds.forEach((id) => updateElement(id, { strokeColor: color }));
     }
   };
 
   const handleFillColorChange = (color: string) => {
     setFillColor(color);
     if (selectedElementIds.size > 0) {
-      selectedElementIds.forEach((id) => {
-        updateElement(id, { fillColor: color });
-      });
+      selectedElementIds.forEach((id) => updateElement(id, { fillColor: color }));
     }
   };
 
   const handleStrokeWidthChange = (width: number) => {
     setStrokeWidth(width);
     if (selectedElementIds.size > 0) {
-      selectedElementIds.forEach((id) => {
-        updateElement(id, { strokeWidth: width });
-      });
+      selectedElementIds.forEach((id) => updateElement(id, { strokeWidth: width }));
     }
   };
 
   return (
     <TooltipProvider delayDuration={200}>
-      {/* ========== COMENTADO: Top Toolbar - Save & Load ==========
-      <div className="absolute top-13 right-4 flex items-center gap-2 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 shadow-lg">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-2"
-              onClick={() => setSaveModalOpen(true)}
-            >
-              <Save size={16} />
-              <span className="hidden sm:inline">Save</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Save to Nostr <kbd className="ml-2 text-xs opacity-60">Ctrl+S</kbd></p>
-          </TooltipContent>
-        </Tooltip>
 
-        <div className="w-px h-6 bg-border" />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-2"
-              onClick={() => setLoadModalOpen(true)}
-            >
-              <FolderOpen size={16} />
-              <span className="hidden sm:inline">Load</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Load from Nostr <kbd className="ml-2 text-xs opacity-60">Ctrl+O</kbd></p>
-          </TooltipContent>
-        </Tooltip>
-
-        {user && (
-          <>
-            <div className="w-px h-6 bg-border" />
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 px-2 text-xs">
-                  {autoSaveStatus === "saving" && (
-                    <>
-                      <Cloud className="h-4 w-4 animate-pulse text-blue-500" />
-                      <span className="text-muted-foreground hidden sm:inline">Saving...</span>
-                    </>
-                  )}
-                  {autoSaveStatus === "saved" && (
-                    <>
-                      <Check className="h-4 w-4 text-green-500" />
-                      <span className="text-green-500 hidden sm:inline">Saved</span>
-                    </>
-                  )}
-                  {autoSaveStatus === "error" && (
-                    <>
-                      <CloudOff className="h-4 w-4 text-red-500" />
-                      <span className="text-red-500 hidden sm:inline">Error</span>
-                    </>
-                  )}
-                  {autoSaveStatus === "idle" && lastSaved && (
-                    <>
-                      <Cloud className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground hidden sm:inline">
-                        {getTimeSinceLastSave()}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="text-xs">
-                  <p className="font-semibold mb-1">Auto-save</p>
-                  {lastSaved ? (
-                    <p>Last saved: {getTimeSinceLastSave()}</p>
-                  ) : (
-                    <p>Auto-saves every 30 seconds</p>
-                  )}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </>
-        )}
-      </div>
-      ========================================================== */}
+      {/* Auto-save status indicator — top right corner */}
+      {user && !user.readOnly && (
+        <div className="absolute top-16 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-30">
+          {autoSaveStatus === "saving" && (
+            <><Cloud className="h-3 w-3 animate-pulse text-blue-400" /><span>Saving...</span></>
+          )}
+          {autoSaveStatus === "saved" && (
+            <><Check className="h-3 w-3 text-green-500" /><span className="text-green-500">Saved</span></>
+          )}
+          {autoSaveStatus === "error" && (
+            <><CloudOff className="h-3 w-3 text-red-500" /><span className="text-red-500">Save failed</span></>
+          )}
+          {autoSaveStatus === "idle" && lastSaved && (
+            <><Cloud className="h-3 w-3" /><span>{getTimeSinceLastSave()}</span></>
+          )}
+        </div>
+      )}
 
       {/* Left Toolbar - Tools */}
       <div className="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 shadow-lg">
@@ -314,9 +248,7 @@ export function Toolbar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>
-                {tool.label} <kbd className="ml-2 text-xs opacity-60">{tool.shortcut}</kbd>
-              </p>
+              <p>{tool.label} <kbd className="ml-2 text-xs opacity-60">{tool.shortcut}</kbd></p>
             </TooltipContent>
           </Tooltip>
         ))}
@@ -324,7 +256,6 @@ export function Toolbar() {
 
       {/* Bottom Toolbar - Colors & Stroke Width */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg">
-        {/* Stroke Colors */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground mr-1">Stroke</span>
           <div className="flex gap-1">
@@ -340,9 +271,7 @@ export function Toolbar() {
                     onClick={() => handleStrokeColorChange(color)}
                   />
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>{color}</p>
-                </TooltipContent>
+                <TooltipContent><p>{color}</p></TooltipContent>
               </Tooltip>
             ))}
           </div>
@@ -350,7 +279,6 @@ export function Toolbar() {
 
         <div className="w-px h-8 bg-border" />
 
-        {/* Stroke Width */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground mr-1">Width</span>
           <div className="flex gap-1">
@@ -368,16 +296,11 @@ export function Toolbar() {
                   >
                     <div
                       className="rounded-full bg-foreground"
-                      style={{
-                        width: Math.min(width * 3, 16),
-                        height: Math.min(width * 3, 16),
-                      }}
+                      style={{ width: Math.min(width * 3, 16), height: Math.min(width * 3, 16) }}
                     />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p>{width}px</p>
-                </TooltipContent>
+                <TooltipContent><p>{width}px</p></TooltipContent>
               </Tooltip>
             ))}
           </div>
@@ -395,9 +318,7 @@ export function Toolbar() {
           <TooltipContent>Zoom Out</TooltipContent>
         </Tooltip>
 
-        <span className="text-sm font-mono w-14 text-center">
-          {Math.round(zoom * 100)}%
-        </span>
+        <span className="text-sm font-mono w-14 text-center">{Math.round(zoom * 100)}%</span>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -420,7 +341,6 @@ export function Toolbar() {
         </Tooltip>
       </div>
 
-      {/* Modales */}
       <SaveCanvasModal open={saveModalOpen} onOpenChange={setSaveModalOpen} />
       <LoadCanvasModal open={loadModalOpen} onOpenChange={setLoadModalOpen} />
     </TooltipProvider>
