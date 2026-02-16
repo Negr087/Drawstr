@@ -54,10 +54,14 @@ export function Toolbar() {
     setStrokeColor,
     strokeWidth,
     setStrokeWidth,
+    fillColor,
+    setFillColor,
     zoom,
     setZoom,
     setViewportOffset,
     elements,
+    selectedElementIds,
+    updateElement,
     canvasId,
     canvasName,
   } = useCanvasStore();
@@ -171,6 +175,34 @@ export function Toolbar() {
   const handleResetView = () => {
     setZoom(1);
     setViewportOffset({ x: 0, y: 0 });
+  };
+
+  // Aplicar color a elementos seleccionados si hay alguno
+  const handleStrokeColorChange = (color: string) => {
+    setStrokeColor(color);
+    if (selectedElementIds.size > 0) {
+      selectedElementIds.forEach((id) => {
+        updateElement(id, { strokeColor: color });
+      });
+    }
+  };
+
+  const handleFillColorChange = (color: string) => {
+    setFillColor(color);
+    if (selectedElementIds.size > 0) {
+      selectedElementIds.forEach((id) => {
+        updateElement(id, { fillColor: color });
+      });
+    }
+  };
+
+  const handleStrokeWidthChange = (width: number) => {
+    setStrokeWidth(width);
+    if (selectedElementIds.size > 0) {
+      selectedElementIds.forEach((id) => {
+        updateElement(id, { strokeWidth: width });
+      });
+    }
   };
 
   return (
@@ -305,7 +337,7 @@ export function Toolbar() {
                       strokeColor === color ? "border-primary scale-110" : "border-transparent"
                     )}
                     style={{ backgroundColor: color }}
-                    onClick={() => setStrokeColor(color)}
+                    onClick={() => handleStrokeColorChange(color)}
                   />
                 </TooltipTrigger>
                 <TooltipContent>
@@ -332,7 +364,7 @@ export function Toolbar() {
                         ? "border-primary bg-primary/20"
                         : "border-transparent hover:bg-secondary"
                     )}
-                    onClick={() => setStrokeWidth(width)}
+                    onClick={() => handleStrokeWidthChange(width)}
                   >
                     <div
                       className="rounded-full bg-foreground"

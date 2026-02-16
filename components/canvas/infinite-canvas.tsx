@@ -1037,21 +1037,23 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
       }
 
       if (isValid) {
-        // Si es laser (viene de activeTool laser), agregar como efímero
-    if (activeTool === "laser") {
-      addEphemeralElement(currentElement, 2000); // 2 segundos
-      // Publicar a Nostr como acción especial (opcional)
-      if (user) {
-        publishCanvasAction("add", currentElement, canvasId);
+        if (activeTool === "laser") {
+          addEphemeralElement(currentElement, 2000);
+          if (user) {
+            publishCanvasAction("add", currentElement, canvasId);
+          }
+        } else {
+          addElement(currentElement);
+          saveHistory();
+          if (user) {
+            publishCanvasAction("add", currentElement, canvasId);
+          }
+        }
       }
-    } else {
-      // Elementos normales
-      addElement(currentElement);
-      saveHistory();
-      if (user) {
-        publishCanvasAction("add", currentElement, canvasId);
-      }
-    }
+
+      // Volver a select después de dibujar (excepto laser, eraser y hand)
+      if (!["laser", "eraser", "hand", "select"].includes(activeTool)) {
+        setActiveTool("select");
       }
     }
 
@@ -1070,6 +1072,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
     addElement,
     setIsDrawing,
     setCurrentElement,
+    setActiveTool,
     publishCanvasAction,
   ]);
 
@@ -1336,17 +1339,16 @@ const handleTextFinish = useCallback(() => {
   
   const finalElement = elements.get(editingText.element.id);
   
-  // Si el texto está vacío, eliminar el elemento
   const textElement = finalElement as TextElement;
-if (!finalElement || finalElement.type !== "text" || !textElement.text || textElement.text.trim() === "") {
+  if (!finalElement || finalElement.type !== "text" || !textElement.text || textElement.text.trim() === "") {
     deleteElement(editingText.element.id);
   } else if (user) {
-    // Publicar a Nostr
     publishCanvasAction("add", finalElement, canvasId);
   }
   
   setEditingText(null);
-}, [editingText, elements, user, canvasId, deleteElement, publishCanvasAction]);
+  setActiveTool("select"); // ← esto
+}, [editingText, elements, user, canvasId, deleteElement, publishCanvasAction, setActiveTool]);
 
 const handleTextCancel = useCallback(() => {
   if (!editingText) return;

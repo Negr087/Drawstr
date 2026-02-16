@@ -112,6 +112,7 @@ export interface NostrUser {
   npub: string;
   name?: string;
   picture?: string;
+  readOnly?: boolean;
 }
 
 export interface CursorPosition {

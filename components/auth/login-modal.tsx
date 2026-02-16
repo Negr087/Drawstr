@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Key, Chrome, AlertCircle, Smartphone, Copy, Check } from "lucide-react";
+import { Loader2, Chrome, AlertCircle, Smartphone, Copy, Check, Eye } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 interface LoginModalProps {
@@ -23,17 +23,17 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ open, onOpenChange }: LoginModalProps) {
-  const [nsecKey, setNsecKey] = useState("");
+  const [npubKey, setNpubKey] = useState("");
   const [copied, setCopied] = useState(false);
-  
-  const { 
-    loginWithExtension, 
-    loginWithNsec, 
+
+  const {
+    loginWithExtension,
+    loginWithNpub,
     loginWithNostrConnect,
     nostrConnectUri,
-    isLoading, 
-    error, 
-    user 
+    isLoading,
+    error,
+    user,
   } = useNostr();
 
   // Close modal when user successfully logs in
@@ -46,7 +46,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   // Clear form when modal closes
   useEffect(() => {
     if (!open) {
-      setNsecKey("");
+      setNpubKey("");
       setCopied(false);
     }
   }, [open]);
@@ -59,10 +59,10 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
     }
   };
 
-  const handleNsecLogin = async () => {
-    if (!nsecKey.trim()) return;
+  const handleNpubLogin = async () => {
+    if (!npubKey.trim()) return;
     try {
-      await loginWithNsec(nsecKey.trim());
+      await loginWithNpub(npubKey.trim());
     } catch (err) {
       console.error("Login failed:", err);
     }
@@ -85,8 +85,8 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && nsecKey.trim()) {
-      handleNsecLogin();
+    if (e.key === "Enter" && npubKey.trim()) {
+      handleNpubLogin();
     }
   };
 
@@ -131,9 +131,13 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               <Smartphone className="h-4 w-4 mr-1" />
               Mobile
             </TabsTrigger>
-            <TabsTrigger value="nsec">Key</TabsTrigger>
+            <TabsTrigger value="npub">
+              <Eye className="h-4 w-4 mr-1" />
+              View
+            </TabsTrigger>
           </TabsList>
 
+          {/* Extension tab - unchanged */}
           <TabsContent value="extension" className="mt-4 space-y-4">
             <div className="text-sm text-muted-foreground">
               Connect using a NIP-07 compatible browser extension like Alby, nos2x, or
@@ -176,6 +180,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
             </div>
           </TabsContent>
 
+          {/* Mobile tab - unchanged */}
           <TabsContent value="connect" className="mt-4 space-y-4">
             <div className="text-sm text-muted-foreground">
               Scan the QR code with your Nostr app (Amber, Alby Go, Nos, etc.) or copy
@@ -198,12 +203,10 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               </Button>
             ) : (
               <div className="space-y-4">
-                {/* QR Code */}
                 <div className="flex justify-center p-4 bg-white rounded-lg">
                   <QRCodeSVG value={nostrConnectUri} size={200} level="M" />
                 </div>
 
-                {/* Connection String */}
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
                     Or copy the connection string:
@@ -214,11 +217,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                       readOnly
                       className="font-mono text-xs"
                     />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={handleCopyUri}
-                    >
+                    <Button variant="outline" size="icon" onClick={handleCopyUri}>
                       {copied ? (
                         <Check className="h-4 w-4 text-green-500" />
                       ) : (
@@ -228,7 +227,6 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
                   </div>
                 </div>
 
-                {/* Status */}
                 <Alert>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <AlertDescription className="text-xs">
@@ -243,22 +241,23 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
             </div>
           </TabsContent>
 
-          <TabsContent value="nsec" className="mt-4 space-y-4">
+          {/* npub tab - new read-only login */}
+          <TabsContent value="npub" className="mt-4 space-y-4">
             <div className="text-sm text-muted-foreground">
-              Enter your Nostr private key (nsec or hex format). This key will only be
-              stored in memory and never sent anywhere.
+              Enter your public key (npub) to browse and draw. Actions that require
+              signing (like posting to Nostr) won't be available.
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="nsec">Private Key</Label>
+              <Label htmlFor="npub">Public Key</Label>
               <div className="relative">
-                <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Eye className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="nsec"
-                  type="password"
-                  placeholder="nsec1..."
-                  value={nsecKey}
-                  onChange={(e) => setNsecKey(e.target.value)}
+                  id="npub"
+                  type="text"
+                  placeholder="npub1..."
+                  value={npubKey}
+                  onChange={(e) => setNpubKey(e.target.value)}
                   onKeyPress={handleKeyPress}
                   className="pl-10"
                   autoComplete="off"
@@ -269,22 +268,22 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
             <Button
               className="w-full gap-2"
               size="lg"
-              onClick={handleNsecLogin}
-              disabled={isLoading || !nsecKey.trim()}
+              onClick={handleNpubLogin}
+              disabled={isLoading || !npubKey.trim()}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Key className="h-4 w-4" />
+                <Eye className="h-4 w-4" />
               )}
-              Connect with Key
+              Browse as Read-Only
             </Button>
 
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription className="text-xs">
-                Never share your private key. For better security, use a browser
-                extension or mobile app instead.
+                Read-only mode: you can draw on canvases but actions like posting to
+                Nostr require a full login with extension or mobile app.
               </AlertDescription>
             </Alert>
           </TabsContent>
