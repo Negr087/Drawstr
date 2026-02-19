@@ -135,14 +135,20 @@ useEffect(() => {
       console.log(`Loaded base canvas with ${data.elements.length} elements`);
       
       // AGREGAR: cargar eventos posteriores al timestamp del canvas
-      if (pool && data.timestamp) {
-        const events = await pool.querySync(relays, {
-          kinds: [NOSTR_KIND_CANVAS_ACTION],
-          "#canvas": [canvasId],
-          since: Math.floor(data.timestamp / 1000),
-        });
-        
-        console.log(`Found ${events.length} events since last save`);
+     if (pool && data.timestamp) {
+  const sinceTimestamp = Math.floor(data.timestamp / 1000);
+  console.log("🔍 Searching for events - kind:", NOSTR_KIND_CANVAS_ACTION, "canvas:", canvasId, "since:", sinceTimestamp, "canvas timestamp:", data.timestamp, "current time:", Math.floor(Date.now() / 1000));
+  
+  const events = await pool.querySync(relays, {
+    kinds: [NOSTR_KIND_CANVAS_ACTION],
+    "#canvas": [canvasId],
+    since: sinceTimestamp,
+  });
+  
+  console.log(`Found ${events.length} events since last save`);
+  if (events.length > 0) {
+    console.log("First event kind:", events[0].kind, "content preview:", events[0].content.slice(0, 100));
+  }
         
         // Aplicar eventos en orden cronológico
         events.sort((a, b) => a.created_at - b.created_at).forEach(event => {

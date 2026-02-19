@@ -1012,6 +1012,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
     }
 
     if (isDrawing && currentElement) {
+      console.log("🎨 Mouse up with element type:", currentElement.type, "tool:", activeTool);
       let isValid = false;
 
       switch (currentElement.type) {
@@ -1037,6 +1038,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
       }
 
       if (isValid) {
+        console.log("✅ Element is valid, will add and publish");
         if (activeTool === "laser") {
           addEphemeralElement(currentElement, 2000);
           if (user) {
@@ -1046,7 +1048,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           addElement(currentElement);
           saveHistory();
           if (user) {
-            console.log("Publishing action as user:", user.pubkey.slice(0, 8));
+            console.log("Publishing action as user:", user.pubkey.slice(0, 8), "to canvas:", canvasId);
             publishCanvasAction("add", currentElement, canvasId);
           }
         }

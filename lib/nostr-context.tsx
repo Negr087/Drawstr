@@ -160,15 +160,16 @@ export function NostrProvider({ children }: { children: ReactNode }) {
       if (!pool) return null;
       try {
         const filter: any = {
-          kinds: [NOSTR_KIND_CANVAS_STATE],
-          "#d": [canvasId],
-          limit: 1,
-        };
+  kinds: [NOSTR_KIND_CANVAS_STATE],
+  "#d": [canvasId],
+  limit: 10,
+};
         const resolvedPubkey = authorPubkey ?? user?.pubkey;
         if (resolvedPubkey) filter.authors = [resolvedPubkey];
         const events = await pool.querySync(relays, filter);
-        if (events.length > 0) {
-          const canvasData = JSON.parse(events[0].content);
+        events.sort((a, b) => b.created_at - a.created_at);
+if (events.length > 0) {
+  const canvasData = JSON.parse(events[0].content);
           console.log(`Canvas loaded: ${canvasData.canvasName} with ${canvasData.elements.length} elements`);
           return canvasData;
         }
@@ -363,6 +364,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         content: JSON.stringify({ action, element, timestamp: Date.now() }),
         pubkey: user.pubkey,
       };
+      console.log("📤 Publishing CANVAS ACTION - kind:", NOSTR_KIND_CANVAS_ACTION, "action:", action, "element id:", element.id);
       const signedEvent = await signEvent(unsignedEvent);
       if (signedEvent) {
         await Promise.allSettled(pool.publish(relays, signedEvent));
@@ -477,10 +479,19 @@ export function NostrProvider({ children }: { children: ReactNode }) {
 
   // Save canvas state — blocked for readOnly users
   const saveCanvasState = useCallback(
-    async (canvasId: string, canvasName: string): Promise<boolean> => {
-      if (!pool || !user || user.readOnly) return false;
-      try {
-        const elementsArray = Array.from(useCanvasStore.getState().elements.values()).filter(el => !el.isDeleted);
+  async (canvasId: string, canvasName: string): Promise<boolean> => {
+    if (!pool || !user || user.readOnly) return false;
+    try {
+      const elementsArray = Array.from(useCanvasStore.getState().elements.values())
+        .filter(el => !el.isDeleted)
+        .map(el => {
+          // Si es imagen y tiene dataUrl, NO guardarlo (muy grande)
+          if (el.type === 'image' && 'dataUrl' in el) {
+            const { dataUrl, ...rest } = el;
+            return rest;
+          }
+          return el;
+        });
         const canvasData = { version: "1.0", canvasId, canvasName, elements: elementsArray, timestamp: Date.now() };
         const unsignedEvent: UnsignedEvent = {
           kind: NOSTR_KIND_CANVAS_STATE,

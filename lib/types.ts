@@ -134,7 +134,7 @@ export interface CanvasMetadata {
 }
 
 // Nostr Event Types for Canvas
-export const NOSTR_KIND_CANVAS_ACTION = 33333;
+export const NOSTR_KIND_CANVAS_ACTION = 30079;
 export const NOSTR_KIND_CANVAS_METADATA = 30023;
 export const NOSTR_KIND_CURSOR_POSITION = 25050; // Ephemeral
 export const NOSTR_KIND_CANVAS_STATE = 30078; // Parameterized Replaceable Event
