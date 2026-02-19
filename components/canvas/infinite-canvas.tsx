@@ -5,6 +5,7 @@ import React from "react"
 import { useRef, useEffect, useCallback, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useNostr } from "@/lib/nostr-context";
+import { uploadImageWithFallback } from "@/lib/nostr-build";
 import type {
   Point,
   CanvasElement,
@@ -1224,62 +1225,69 @@ if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const { x, y } = screenToCanvas(e.clientX, e.clientY);
-      const files = Array.from(e.dataTransfer.files);
-
-      files.forEach((file) => {
-        if (!file.type.startsWith("image/")) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          const img = new Image();
-          img.onload = () => {
-            let width = img.naturalWidth;
-            let height = img.naturalHeight;
-            const maxSize = 400;
-
-            if (width > maxSize || height > maxSize) {
-              const ratio = Math.min(maxSize / width, maxSize / height);
-              width *= ratio;
-              height *= ratio;
-            }
-
-            const now = Date.now();
-            const imageElement: ImageElement = {
-              id: generateId(),
-              type: "image",
-              x: x,
-              y: y,
-              width,
-              height,
-              dataUrl,
-              strokeColor: "transparent",
-              fillColor: "transparent",
-              strokeWidth: 0,
-              opacity: 1,
-              zIndex: now, // ← NUEVO
-              createdAt: now,
-              updatedAt: now,
-              createdBy: currentUser?.pubkey || "anonymous",
-            };
-
-            addElement(imageElement);
-            if (user) {
-              publishCanvasAction("add", imageElement, canvasId);
-            }
+  async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const { x, y } = screenToCanvas(e.clientX, e.clientY);
+    const files = Array.from(e.dataTransfer.files);
+    
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue;
+      
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const dataUrl = event.target?.result as string;
+        const img = new Image();
+        
+        img.onload = async () => {
+          let width = img.naturalWidth;
+          let height = img.naturalHeight;
+          const maxSize = 400;
+          
+          if (width > maxSize || height > maxSize) {
+            const ratio = Math.min(maxSize / width, maxSize / height);
+            width *= ratio;
+            height *= ratio;
+          }
+          
+          // 🔥 UPLOAD IMAGE FIRST
+          const uploadedUrl = await uploadImageWithFallback(dataUrl);
+          const finalDataUrl = uploadedUrl || dataUrl; // Fallback to base64 if upload fails
+          
+          const now = Date.now();
+          const imageElement: ImageElement = {
+            id: generateId(),
+            type: "image",
+            x: x,
+            y: y,
+            width,
+            height,
+            dataUrl: finalDataUrl, // ← Use uploaded URL instead of base64
+            strokeColor: "transparent",
+            fillColor: "transparent",
+            strokeWidth: 0,
+            opacity: 1,
+            zIndex: now,
+            createdAt: now,
+            updatedAt: now,
+            createdBy: currentUser?.pubkey || "anonymous",
           };
-          img.src = dataUrl;
+          
+          addElement(imageElement);
+          if (user) {
+            publishCanvasAction("add", imageElement, canvasId);
+          }
         };
-        reader.readAsDataURL(file);
-      });
-    },
-    [screenToCanvas, addElement, currentUser, user, canvasId, publishCanvasAction]
-  );
+        
+        img.src = dataUrl;
+      };
+      
+      reader.readAsDataURL(file);
+    }
+  },
+  [screenToCanvas, addElement, currentUser, user, canvasId, publishCanvasAction]
+);
 
   // Handle double-click to edit text
   const handleDoubleClick = useCallback(
