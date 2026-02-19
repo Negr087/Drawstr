@@ -45,7 +45,6 @@ export function Header({
   canvasAuthorName,
   canvasAuthorPicture,
 }: HeaderProps) {
-  const [copied, setCopied] = useState(false);
   const [showZapModal, setShowZapModal] = useState(false);
 
   const { canvasName, setCanvasName, collaboratorCursors, canvasId } = useCanvasStore();
@@ -57,12 +56,6 @@ export function Header({
     );
   }, [collaboratorCursors]);
 
-  const handleCopyLink = async () => {
-    const url = `${window.location.origin}/canvas/${canvasId}?author=${user?.pubkey}`;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   // Show zap button only when viewing someone else's canvas
   const zapTarget = canvasAuthor && canvasAuthor.length > 0 && canvasAuthor !== user?.pubkey ? canvasAuthor : null;
@@ -191,16 +184,6 @@ export function Header({
             variant="outline"
             size="sm"
             className="hidden sm:flex gap-2 bg-transparent"
-            onClick={handleCopyLink}
-          >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            {copied ? "Copied!" : "Copy Link"}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden sm:flex gap-2 bg-transparent"
             onClick={onShare}
           >
             <Share2 size={14} />
@@ -231,10 +214,6 @@ export function Header({
                   Zap creator
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={handleCopyLink}>
-                <Copy size={14} className="mr-2" />
-                Copy Link
-              </DropdownMenuItem>
               {user && !user.readOnly && (
                 <DropdownMenuItem onClick={onPostToNostr}>
                   <Zap size={14} className="mr-2" />

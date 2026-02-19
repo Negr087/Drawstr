@@ -24,13 +24,15 @@ interface ShareModalProps {
 
 export function ShareModal({ open, onOpenChange }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
-  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [allowEditing, setAllowEditing] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const { canvasId, canvasName, elements } = useCanvasStore();
   const { user } = useNostr();
 
-  const shareUrl = typeof window !== "undefined" 
-    ? `${window.location.origin}/canvas/${canvasId}${isReadOnly ? "?view=true" : ""}`
+  const shareUrl = typeof window !== "undefined" && user
+  ? `${window.location.origin}/canvas/${canvasId}?author=${user.pubkey}${!allowEditing ? "&view=true" : ""}`
+  : typeof window !== "undefined"
+    ? `${window.location.origin}/canvas/${canvasId}`
     : "";
 
   // Generate QR code using an API
@@ -132,24 +134,24 @@ export function ShareModal({ open, onOpenChange }: ShareModalProps) {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                    {isReadOnly ? (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <Edit3 className="h-4 w-4 text-primary" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">
-                      {isReadOnly ? "View Only Mode" : "Collaborative Mode"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {isReadOnly 
-                        ? "Viewers cannot make changes" 
-                        : "Anyone can draw and collaborate"}
-                    </p>
-                  </div>
+  {allowEditing ? (
+    <Edit3 className="h-4 w-4 text-primary" />
+  ) : (
+    <Eye className="h-4 w-4 text-muted-foreground" />
+  )}
+</div>
+<div>
+  <p className="text-sm font-medium">
+    {allowEditing ? "Editing Enabled" : "View Only (Default)"}
+  </p>
+  <p className="text-xs text-muted-foreground">
+    {allowEditing 
+      ? "Anyone can draw and collaborate" 
+      : "Viewers can only see, not edit"}
+  </p>
+</div>
                 </div>
-                <Switch checked={isReadOnly} onCheckedChange={setIsReadOnly} />
+                <Switch checked={allowEditing} onCheckedChange={setAllowEditing} />
               </div>
             </div>
 
@@ -230,10 +232,10 @@ export function ShareModal({ open, onOpenChange }: ShareModalProps) {
             {/* Mode Info */}
             <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
               <p>
-                {isReadOnly 
-                  ? "QR code leads to view-only mode. Scanners won't be able to edit."
-                  : "QR code leads to collaborative mode. Scanners can draw and edit."}
-              </p>
+  {allowEditing 
+    ? "QR code leads to collaborative mode. Scanners can draw and edit."
+    : "QR code leads to view-only mode. Scanners won't be able to edit."}
+</p>
             </div>
           </TabsContent>
         </Tabs>

@@ -1046,6 +1046,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           addElement(currentElement);
           saveHistory();
           if (user) {
+            console.log("Publishing action as user:", user.pubkey.slice(0, 8));
             publishCanvasAction("add", currentElement, canvasId);
           }
         }

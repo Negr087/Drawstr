@@ -348,24 +348,34 @@ export function NostrProvider({ children }: { children: ReactNode }) {
 
   // Publish canvas action — skips for readOnly users
   const publishCanvasAction = useCallback(
-    async (action: "add" | "update" | "delete", element: CanvasElement, canvasId: string) => {
-      if (!pool || !user || user.readOnly) return;
-      try {
-        const unsignedEvent: UnsignedEvent = {
-          kind: NOSTR_KIND_CANVAS_ACTION,
-          created_at: Math.floor(Date.now() / 1000),
-          tags: [["d", canvasId], ["canvas", canvasId], ["author", user.pubkey]],
-          content: JSON.stringify({ action, element, timestamp: Date.now() }),
-          pubkey: user.pubkey,
-        };
-        const signedEvent = await signEvent(unsignedEvent);
-        if (signedEvent) await Promise.allSettled(pool.publish(relays, signedEvent));
-      } catch (err) {
-        console.warn("Failed to publish canvas action:", err);
+  async (action: "add" | "update" | "delete", element: CanvasElement, canvasId: string) => {
+    // Bloquear solo si NO hay user, o si es readOnly (npub login)
+    if (!pool || !user || user.readOnly) {
+      console.log("publishCanvasAction blocked - readOnly or no user");
+      return;
+    }
+    
+    try {
+      const unsignedEvent: UnsignedEvent = {
+        kind: NOSTR_KIND_CANVAS_ACTION,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [["d", canvasId], ["canvas", canvasId], ["author", user.pubkey]],
+        content: JSON.stringify({ action, element, timestamp: Date.now() }),
+        pubkey: user.pubkey,
+      };
+      const signedEvent = await signEvent(unsignedEvent);
+      if (signedEvent) {
+        await Promise.allSettled(pool.publish(relays, signedEvent));
+        console.log("Published canvas action:", action);
+      } else {
+        console.warn("Failed to sign event - no signing method available");
       }
-    },
-    [pool, user, relays, signEvent]
-  );
+    } catch (err) {
+      console.warn("Failed to publish canvas action:", err);
+    }
+  },
+  [pool, user, relays, signEvent]
+);
 
   // Publish cursor position — skips for readOnly users
   const publishCursorPosition = useCallback(
@@ -395,10 +405,12 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         [{ kinds: [NOSTR_KIND_CANVAS_ACTION], "#canvas": [canvasId] }] as any,
         {
           onevent(event) {
+            console.log("📨 Received canvas event from:", event.pubkey.slice(0, 8), "action:", JSON.parse(event.content).action);
             try {
               const data = JSON.parse(event.content);
               const element = data.element as CanvasElement;
               if (event.pubkey === user.pubkey) return;
+              console.log("✅ Processing event:", data.action, "element:", element.id);
               switch (data.action) {
                 case "add": addElement(element); break;
                 case "update": updateElement(element.id, element); break;
@@ -481,6 +493,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         if (signedEvent) {
           const results = await Promise.allSettled(pool.publish(relays, signedEvent));
           const successCount = results.filter(r => r.status === 'fulfilled').length;
+          console.log(`Published canvas action to ${successCount}/${relays.length} relays`);
           console.log(`Canvas saved to ${successCount} relays`);
           if (successCount > 0) localStorage.setItem(`lastCanvas:${user.pubkey}`, canvasId);
           return successCount > 0;

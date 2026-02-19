@@ -89,18 +89,24 @@ export function Toolbar() {
   const isSavingRef = useRef(false);
 
   const doSave = useCallback(async (currentHash: string) => {
-    if (isSavingRef.current || !user || !canvasId || user.readOnly) return;
+    if (isSavingRef.current || !user || !canvasId || user.readOnly) {
+      console.log("doSave blocked:", { isSaving: isSavingRef.current, user: !!user, canvasId, readOnly: user?.readOnly });
+      return;
+    }
     isSavingRef.current = true;
     setAutoSaveStatus("saving");
+    console.log("doSave START — canvasId:", canvasId, "canvasName:", canvasName);
 
     try {
       const success = await saveCanvasState(canvasId, canvasName);
+      console.log("doSave result:", success);
       if (success) {
         savedHashRef.current = currentHash;
         setAutoSaveStatus("saved");
         setLastSaved(new Date());
         setTimeout(() => setAutoSaveStatus("idle"), 3000);
       } else {
+        console.warn("saveCanvasState returned false");
         setAutoSaveStatus("error");
         setTimeout(() => setAutoSaveStatus("idle"), 3000);
       }
@@ -116,33 +122,40 @@ export function Toolbar() {
   // Auto-save: detecta CUALQUIER cambio en elementos (no solo count)
   useEffect(() => {
     if (!user || !canvasId || user.readOnly) return;
+    // Solo auto-guardar si eres el autor del canvas
+  // (si el canvas tiene ?author= y no eres ese author, no guardes)
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search);
+    const canvasAuthor = params.get("author");
+    if (canvasAuthor && canvasAuthor !== user.pubkey) {
+      console.log("Not canvas author, skipping auto-save");
+      return;
+    }
+  }
 
     const currentHash = getElementsHash(elements);
+    console.log("Auto-save check — hash:", currentHash.slice(0, 40), "| savedHash:", savedHashRef.current.slice(0, 40));
 
-    // Sin elementos, nada que guardar
     if (!currentHash) return;
+    if (currentHash === savedHashRef.current) {
+      console.log("Hash unchanged, skipping");
+      return;
+    }
 
-    // Si el hash no cambió desde el último guardado, no hacer nada
-    if (currentHash === savedHashRef.current) return;
-
-    // Si el hash cambió respecto al tick anterior, resetear timer
     if (currentHash !== lastHashRef.current) {
       lastHashRef.current = currentHash;
+      console.log("Hash changed, scheduling save in 5s...");
 
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
 
-      // Guardar 5 segundos después del último cambio
       autoSaveTimeoutRef.current = setTimeout(() => {
+        console.log("Timer fired, saving...");
         doSave(currentHash);
       }, 5000);
     }
 
     return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
     };
   }, [elements, user, canvasId, doSave]);
 

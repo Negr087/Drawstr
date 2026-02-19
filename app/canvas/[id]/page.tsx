@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
+import { NOSTR_KIND_CANVAS_ACTION } from "@/lib/types";
 import { useNostr } from "@/lib/nostr-context";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Toolbar } from "@/components/canvas/toolbar";
@@ -55,34 +56,58 @@ export default function CanvasPage({ params }: PageProps) {
 
   // Check URL params and fetch author info
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-    setIsViewOnly(params.get("view") === "true");
-
-    const authorPubkey = params.get("author");
-    if (authorPubkey) {
-      setCanvasAuthor({ pubkey: authorPubkey });
-
-      // Fetch author metadata
-      if (pool) {
-        pool.querySync(relays, {
-          kinds: [0],
-          authors: [authorPubkey],
-          limit: 1,
-        }).then((events) => {
-          if (events.length > 0) {
-            const metadata = JSON.parse(events[0].content);
-            setCanvasAuthor({
-              pubkey: authorPubkey,
-              name: metadata.name || metadata.display_name,
-              picture: metadata.picture,
-            });
-          }
-        }).catch(console.error);
-      }
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  
+  // View-only si tiene param explícito O si estás viendo el canvas de otro
+  const explicitViewOnly = params.get("view") === "true";
+  const author = params.get("author");
+  
+  if (author) {
+    setCanvasAuthor({ pubkey: author });
+    // Fetch metadata...
+    if (pool) {
+      pool.querySync(relays, {
+        kinds: [0],
+        authors: [author],
+        limit: 1,
+      }).then((events) => {
+        if (events.length > 0) {
+          const metadata = JSON.parse(events[0].content);
+          setCanvasAuthor({
+            pubkey: author,
+            name: metadata.name || metadata.display_name,
+            picture: metadata.picture,
+          });
+        }
+      }).catch(console.error);
     }
-  }, [pool, relays]);
+  }
+  
+  setIsViewOnly(explicitViewOnly);
+}, [pool, relays]);
+
+// AGREGAR un segundo useEffect que actualiza isViewOnly cuando se carga el user
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  
+  const params = new URLSearchParams(window.location.search);
+  const explicitViewOnly = params.get("view") === "true";
+  
+  // View-only SOLO si el param ?view=true está presente
+  // O si no hay author Y no eres el dueño
+  if (explicitViewOnly) {
+    setIsViewOnly(true);
+  } else if (canvasAuthor?.pubkey && user && canvasAuthor.pubkey !== user.pubkey) {
+    // Estás viendo el canvas de otro pero SIN ?view=true → puedes editar
+    setIsViewOnly(false);
+  } else if (canvasAuthor?.pubkey && !user) {
+    // No estás logueado viendo el canvas de otro → view-only
+    setIsViewOnly(true);
+  } else {
+    setIsViewOnly(false);
+  }
+}, [canvasAuthor?.pubkey, user]);
 
   // Initialize canvas
   useEffect(() => {
@@ -91,33 +116,82 @@ export default function CanvasPage({ params }: PageProps) {
   }, [canvasId, setCanvasId, setCanvasName]);
 
   // Auto-load canvas state
-  useEffect(() => {
-    if (!canvasId) return;
-    if (!user && !canvasAuthor) return;
+useEffect(() => {
+  if (!canvasId) return;
+  
+  // Si hay author en URL, cargar su canvas (aunque no estés logueado)
+  // Si no hay author, cargar el tuyo (requiere login)
+  const authorToLoad = canvasAuthor?.pubkey ?? user?.pubkey;
+  if (!authorToLoad) return;
 
-    const autoLoad = async () => {
-      try {
-        const data = await loadCanvasState(canvasId, canvasAuthor?.pubkey);
-        if (data && data.elements && data.elements.length > 0) {
-          loadElements(data.elements);
-          if (data.canvasName) setCanvasName(data.canvasName);
-          console.log(`Auto-loaded canvas: ${data.canvasName}`);
-        }
-      } catch (error) {
-        console.error("Failed to auto-load canvas:", error);
+  const autoLoad = async () => {
+  try {
+    console.log("Auto-loading canvas from author:", authorToLoad);
+    const data = await loadCanvasState(canvasId, authorToLoad);
+    
+    if (data && data.elements) {
+      loadElements(data.elements);
+      if (data.canvasName) setCanvasName(data.canvasName);
+      console.log(`Loaded base canvas with ${data.elements.length} elements`);
+      
+      // AGREGAR: cargar eventos posteriores al timestamp del canvas
+      if (pool && data.timestamp) {
+        const events = await pool.querySync(relays, {
+          kinds: [NOSTR_KIND_CANVAS_ACTION],
+          "#canvas": [canvasId],
+          since: Math.floor(data.timestamp / 1000),
+        });
+        
+        console.log(`Found ${events.length} events since last save`);
+        
+        // Aplicar eventos en orden cronológico
+        events.sort((a, b) => a.created_at - b.created_at).forEach(event => {
+          try {
+            const eventData = JSON.parse(event.content);
+            const element = eventData.element;
+            
+            switch (eventData.action) {
+              case "add":
+                useCanvasStore.getState().addElement(element);
+                break;
+              case "update":
+                useCanvasStore.getState().updateElement(element.id, element);
+                break;
+              case "delete":
+                useCanvasStore.getState().deleteElement(element.id);
+                break;
+            }
+          } catch (err) {
+            console.error("Failed to apply event:", err);
+          }
+        });
       }
-    };
+    } else {
+      console.log("No canvas data found");
+    }
+  } catch (error) {
+    console.error("Failed to auto-load canvas:", error);
+  }
+};
 
-    autoLoad();
-  }, [user, canvasId, canvasAuthor, loadCanvasState, loadElements, setCanvasName]);
+  autoLoad();
+}, [canvasId, canvasAuthor?.pubkey, user?.pubkey, loadCanvasState, loadElements, setCanvasName]);
 
   // Subscribe to canvas events
   useEffect(() => {
-    if (!user || !isConnected || isSubscribed) return;
-    setIsSubscribed(true);
-    const unsubscribe = subscribeToCanvas(canvasId);
-    return () => { unsubscribe(); };
-  }, [user, isConnected, canvasId, isSubscribed, subscribeToCanvas]);
+  // Suscribirse si estás logueado Y conectado
+  // Ya sea tu canvas o el de otro (para ver cambios en tiempo real)
+  if (!user || !isConnected || isSubscribed) return;
+  
+  console.log("Subscribing to canvas:", canvasId);
+  setIsSubscribed(true);
+  const unsubscribe = subscribeToCanvas(canvasId);
+  
+  return () => {
+    console.log("Unsubscribing from canvas:", canvasId);
+    unsubscribe();
+  };
+}, [user, isConnected, canvasId, isSubscribed, subscribeToCanvas]);
 
   useEffect(() => {
     if (!user) setIsSubscribed(false);
