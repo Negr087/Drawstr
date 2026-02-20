@@ -355,6 +355,13 @@ if (events.length > 0) {
       console.log("publishCanvasAction blocked - readOnly or no user");
       return;
     }
+    if (element.type === 'image') {
+      console.log("🖼️ Publishing image element:", {
+        id: element.id,
+        hasDataUrl: !!(element as any).dataUrl,
+        dataUrlPreview: ((element as any).dataUrl || 'MISSING').slice(0, 100)
+      });
+    }
     
     try {
       const unsignedEvent: UnsignedEvent = {

@@ -1274,6 +1274,9 @@ if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
           // 🔥 UPLOAD IMAGE FIRST
           const uploadedUrl = await uploadImageWithFallback(dataUrl);
           const finalDataUrl = uploadedUrl || dataUrl; // Fallback to base64 if upload fails
+          console.log("📸 Image uploaded:", uploadedUrl ? "SUCCESS" : "FAILED");
+          console.log("📸 Final dataUrl type:", finalDataUrl.startsWith('data:') ? 'base64' : 'URL');
+          console.log("📸 Final dataUrl:", finalDataUrl.slice(0, 100));
           
           const now = Date.now();
           const imageElement: ImageElement = {
