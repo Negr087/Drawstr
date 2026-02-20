@@ -49,6 +49,7 @@ export function InfiniteCanvas({ canvasId }: InfiniteCanvasProps) {
   element: TextElement;
   position: Point;
 } | null>(null);
+const [imageLoadTrigger, setImageLoadTrigger] = useState(0);
 
   const {
     elements,
@@ -301,32 +302,47 @@ useEffect(() => {
   break;
 }
 
-        case "image": {
-          const imgElement = element as ImageElement;
-          let img = imageCache.current.get(imgElement.id);
+ case "image": {
+  const imgElement = element as ImageElement;
+  let img = imageCache.current.get(imgElement.id);
+  
+  if (!img) {
+    img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = imgElement.dataUrl;
+    
+    img.onload = () => {
+      setImageLoadTrigger(prev => prev + 1);
+    };
+    
+    img.onerror = () => {
+      console.error("Failed to load image:", imgElement.dataUrl.slice(0, 100));
+    };
+    
+    imageCache.current.set(imgElement.id, img);
+  }
+  
+  if (img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, imgElement.x, imgElement.y, imgElement.width, imgElement.height);
+  } else {
+    ctx.fillStyle = "rgba(100, 100, 100, 0.3)";
+    ctx.fillRect(imgElement.x, imgElement.y, imgElement.width, imgElement.height);
+    ctx.strokeStyle = "#666";
+    ctx.strokeRect(imgElement.x, imgElement.y, imgElement.width, imgElement.height);
+    ctx.fillStyle = "#999";
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Loading...", imgElement.x + imgElement.width / 2, imgElement.y + imgElement.height / 2);
+  }
+  break;
+}
+      } // ← CIERRE DEL SWITCH
 
-          if (!img) {
-            img = new Image();
-            img.src = imgElement.dataUrl;
-            img.onload = () => {
-              // Force re-render when image loads
-            };
-            imageCache.current.set(imgElement.id, img);
-          }
-
-          if (img.complete && img.naturalWidth > 0) {
-            ctx.drawImage(img, imgElement.x, imgElement.y, imgElement.width, imgElement.height);
-          }
-          break;
-        }
-      }
-
-      // Draw selection box
+      // Draw selection box (FUERA del switch, para TODOS los elementos)
       if (selectedElementIds.has(element.id)) {
         ctx.strokeStyle = "#00d9ff";
         ctx.lineWidth = 2 / zoom;
         ctx.setLineDash([5 / zoom, 5 / zoom]);
-
         const bounds = getElementBounds(element);
         ctx.strokeRect(
           bounds.x - 5 / zoom,
@@ -335,23 +351,21 @@ useEffect(() => {
           bounds.height + 10 / zoom
         );
         ctx.setLineDash([]);
-
-        // Draw resize handles
+        
         const handleSize = 8 / zoom;
         ctx.fillStyle = "#ffffff";
         ctx.strokeStyle = "#00d9ff";
         ctx.lineWidth = 1 / zoom;
-
         const handles = getResizeHandles(bounds);
         Object.values(handles).forEach(({ x, y }) => {
           ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
           ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
         });
       }
-
+      
       ctx.restore();
     },
-    [viewportOffset, zoom, selectedElementIds]
+    [viewportOffset, zoom, selectedElementIds, imageLoadTrigger]
   );
 
   // Draw selection box (drag to select)
@@ -521,6 +535,7 @@ ephemeralElements.forEach((element) => {
     drawElement,
     drawCursors,
     drawSelectionBox,
+    imageLoadTrigger,
   ]);
 
   // Handle mouse down
