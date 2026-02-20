@@ -304,6 +304,11 @@ useEffect(() => {
 
  case "image": {
   const imgElement = element as ImageElement;
+  // Si no tiene dataUrl, skip
+  if (!imgElement.dataUrl) {
+    console.warn("Image element missing dataUrl:", imgElement.id);
+    break;
+  }
   let img = imageCache.current.get(imgElement.id);
   
   if (!img) {
