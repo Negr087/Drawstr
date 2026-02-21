@@ -491,14 +491,6 @@ if (events.length > 0) {
     try {
       const elementsArray = Array.from(useCanvasStore.getState().elements.values())
         .filter(el => !el.isDeleted)
-        .map(el => {
-          // Si es imagen y tiene dataUrl, NO guardarlo (muy grande)
-          if (el.type === 'image' && 'dataUrl' in el) {
-            const { dataUrl, ...rest } = el;
-            return rest;
-          }
-          return el;
-        });
         const canvasData = { version: "1.0", canvasId, canvasName, elements: elementsArray, timestamp: Date.now() };
         const unsignedEvent: UnsignedEvent = {
           kind: NOSTR_KIND_CANVAS_STATE,
