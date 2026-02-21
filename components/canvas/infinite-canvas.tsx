@@ -1298,9 +1298,16 @@ if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
           };
           
           addElement(imageElement);
-          if (user) {
-            publishCanvasAction("add", imageElement, canvasId);
-          }
+          console.log("📦 Added image element to store:", imageElement.id, "dataUrl length:", imageElement.dataUrl?.length || 0);
+if (user) {
+  publishCanvasAction("add", imageElement, canvasId);
+  
+  // Forzar guardado inmediato (sin usar getState)
+  setTimeout(async () => {
+    const { saveCanvasState } = useNostr();
+    await saveCanvasState(canvasId, useCanvasStore.getState().canvasName);
+  }, 1000);
+}
         };
         
         img.src = dataUrl;
