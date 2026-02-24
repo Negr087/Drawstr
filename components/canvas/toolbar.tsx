@@ -243,29 +243,47 @@ export function Toolbar() {
         </div>
       )}
 
-      {/* Left Toolbar - Tools */}
-      <div className="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 shadow-lg">
-        {tools.map((tool) => (
-          <Tooltip key={tool.id}>
-            <TooltipTrigger asChild>
-              <Button
-                variant={activeTool === tool.id ? "default" : "ghost"}
-                size="icon"
-                className={cn(
-                  "w-10 h-10",
-                  activeTool === tool.id && "bg-primary text-primary-foreground"
-                )}
-                onClick={() => setActiveTool(tool.id)}
-              >
-                {tool.icon}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>{tool.label} <kbd className="ml-2 text-xs opacity-60">{tool.shortcut}</kbd></p>
-            </TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
+      {/* Left Toolbar - Tools (Desktop) */}
+<div className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 flex-col gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 shadow-lg z-30">
+  {tools.map((tool) => (
+    <Tooltip key={tool.id}>
+      <TooltipTrigger asChild>
+        <Button
+          variant={activeTool === tool.id ? "default" : "ghost"}
+          size="icon"
+          className={cn(
+            "w-10 h-10",
+            activeTool === tool.id && "bg-primary text-primary-foreground"
+          )}
+          onClick={() => setActiveTool(tool.id)}
+        >
+          {tool.icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>{tool.label} <kbd className="ml-2 text-xs opacity-60">{tool.shortcut}</kbd></p>
+      </TooltipContent>
+    </Tooltip>
+  ))}
+</div>
+
+{/* Top Toolbar - Tools (Mobile) */}
+<div className="md:hidden absolute top-16 left-0 right-0 flex items-center gap-1 bg-card/80 backdrop-blur-sm border-b border-border p-2 overflow-x-auto z-30">
+  {tools.map((tool) => (
+    <Button
+      key={tool.id}
+      variant={activeTool === tool.id ? "default" : "ghost"}
+      size="icon"
+      className={cn(
+        "w-12 h-12 flex-shrink-0",
+        activeTool === tool.id && "bg-primary text-primary-foreground"
+      )}
+      onClick={() => setActiveTool(tool.id)}
+    >
+      {tool.icon}
+    </Button>
+  ))}
+</div>
 
       {/* Bottom Toolbar - Colors & Stroke Width */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg">
