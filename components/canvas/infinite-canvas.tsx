@@ -1132,6 +1132,53 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
     [zoom, viewportOffset, setZoom, setViewportOffset]
   );
 
+  // Touch support - convertir touch a mouse events
+const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+  if (e.touches.length !== 1) return; // Solo 1 dedo
+  
+  const touch = e.touches[0];
+  const rect = canvasRef.current?.getBoundingClientRect();
+  if (!rect) return;
+
+  // Simular mousedown
+  const mouseEvent = {
+    preventDefault: () => e.preventDefault(),
+    clientX: touch.clientX,
+    clientY: touch.clientY,
+    button: 0,
+    shiftKey: false,
+    buttons: 1,
+  } as React.MouseEvent<HTMLCanvasElement>;
+
+  handleMouseDown(mouseEvent);
+}, [handleMouseDown]);
+
+const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+  e.preventDefault(); // Prevenir scroll del navegador
+  if (e.touches.length !== 1) return;
+  
+  const touch = e.touches[0];
+  const rect = canvasRef.current?.getBoundingClientRect();
+  if (!rect) return;
+
+  // Simular mousemove
+  const mouseEvent = {
+    clientX: touch.clientX,
+    clientY: touch.clientY,
+    buttons: 1,
+    shiftKey: false,
+    movementX: 0,
+    movementY: 0,
+  } as React.MouseEvent<HTMLCanvasElement>;
+
+  handleMouseMove(mouseEvent);
+}, [handleMouseMove]);
+
+const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+  e.preventDefault();
+  handleMouseUp();
+}, [handleMouseUp]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1407,26 +1454,26 @@ const handleTextCancel = useCallback(() => {
       onDrop={handleDrop}
     >
       <canvas
-        id="drawstr-canvas"
-        ref={canvasRef}
-        width={dimensions.width}
-        height={dimensions.height}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
-        onDoubleClick={handleDoubleClick}
-        className="cursor-crosshair"
-        style={{
-          cursor:
-            activeTool === "hand"
-              ? "grab"
-              : activeTool === "select"
-                ? "default"
-                : "crosshair",
-        }}
-      />
+  id="drawstr-canvas"
+  ref={canvasRef}
+  width={dimensions.width}
+  height={dimensions.height}
+  onMouseDown={handleMouseDown}
+  onMouseMove={handleMouseMove}
+  onMouseUp={handleMouseUp}
+  onMouseLeave={handleMouseUp}
+  onWheel={handleWheel}
+  onDoubleClick={handleDoubleClick}
+  onTouchStart={handleTouchStart}
+  onTouchMove={handleTouchMove}
+  onTouchEnd={handleTouchEnd}
+  onTouchCancel={handleTouchEnd}
+  className="cursor-crosshair"
+  style={{
+    cursor: activeTool === "hand" ? "grab" : activeTool === "select" ? "default" : "crosshair",
+    touchAction: "none", // ← MUY IMPORTANTE: previene gestos del navegador
+  }}
+/>
 
       {/* Banner de view-only si no está logueado */}
     {!user && (
