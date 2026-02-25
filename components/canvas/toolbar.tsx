@@ -286,7 +286,7 @@ export function Toolbar() {
 </div>
 
       {/* Bottom Toolbar - Colors & Stroke Width */}
-<div className="absolute bottom-4 md:bottom-4 sm:bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 md:p-3 shadow-lg max-w-[95vw] overflow-x-auto">
+<div className="absolute right-4 bottom-24 md:bottom-4 sm:bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 md:p-3 shadow-lg max-w-[95vw] overflow-x-auto">
   <div className="flex items-center gap-1 md:gap-2">
     <span className="text-xs text-muted-foreground mr-1 hidden md:inline">Stroke</span>
     <div className="flex gap-1">

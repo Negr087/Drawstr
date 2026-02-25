@@ -24,6 +24,7 @@ interface InfiniteCanvasProps {
 }
 
 export function InfiniteCanvas({ canvasId }: InfiniteCanvasProps) {
+  const lastTouchPos = useRef<{ x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -1154,21 +1155,29 @@ const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) =>
 }, [handleMouseDown]);
 
 const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-  e.preventDefault(); // Prevenir scroll del navegador
+  e.preventDefault();
   if (e.touches.length !== 1) return;
   
   const touch = e.touches[0];
   const rect = canvasRef.current?.getBoundingClientRect();
   if (!rect) return;
 
-  // Simular mousemove
+  // Calcular movementX y movementY manualmente
+  let movementX = 0;
+  let movementY = 0;
+  if (lastTouchPos.current) {
+    movementX = touch.clientX - lastTouchPos.current.x;
+    movementY = touch.clientY - lastTouchPos.current.y;
+  }
+  lastTouchPos.current = { x: touch.clientX, y: touch.clientY };
+
   const mouseEvent = {
     clientX: touch.clientX,
     clientY: touch.clientY,
     buttons: 1,
     shiftKey: false,
-    movementX: 0,
-    movementY: 0,
+    movementX,
+    movementY,
   } as React.MouseEvent<HTMLCanvasElement>;
 
   handleMouseMove(mouseEvent);
@@ -1176,6 +1185,7 @@ const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => 
 
 const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
   e.preventDefault();
+  lastTouchPos.current = null; // ← Reset al soltar
   handleMouseUp();
 }, [handleMouseUp]);
 
