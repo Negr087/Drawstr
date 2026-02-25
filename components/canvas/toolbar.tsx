@@ -286,91 +286,91 @@ export function Toolbar() {
 </div>
 
       {/* Bottom Toolbar - Colors & Stroke Width */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-3 shadow-lg">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground mr-1">Stroke</span>
-          <div className="flex gap-1">
-            {STROKE_COLORS.map((color) => (
-              <Tooltip key={color}>
-                <TooltipTrigger asChild>
-                  <button
-                    className={cn(
-                      "w-6 h-6 rounded-full border-2 transition-transform hover:scale-110",
-                      strokeColor === color ? "border-primary scale-110" : "border-transparent"
-                    )}
-                    style={{ backgroundColor: color }}
-                    onClick={() => handleStrokeColorChange(color)}
-                  />
-                </TooltipTrigger>
-                <TooltipContent><p>{color}</p></TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-        </div>
+<div className="absolute bottom-4 md:bottom-4 sm:bottom-20 left-1/2 -translate-x-1/2 flex items-center gap-2 md:gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 md:p-3 shadow-lg max-w-[95vw] overflow-x-auto">
+  <div className="flex items-center gap-1 md:gap-2">
+    <span className="text-xs text-muted-foreground mr-1 hidden md:inline">Stroke</span>
+    <div className="flex gap-1">
+      {STROKE_COLORS.map((color) => (
+        <Tooltip key={color}>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-8 h-8 md:w-6 md:h-6 rounded-full border-2 transition-transform active:scale-95",
+                strokeColor === color ? "border-primary scale-110" : "border-transparent"
+              )}
+              style={{ backgroundColor: color }}
+              onClick={() => handleStrokeColorChange(color)}
+            />
+          </TooltipTrigger>
+          <TooltipContent className="hidden md:block"><p>{color}</p></TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  </div>
 
-        <div className="w-px h-8 bg-border" />
+  <div className="w-px h-6 md:h-8 bg-border" />
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground mr-1">Width</span>
-          <div className="flex gap-1">
-            {STROKE_WIDTHS.map((width) => (
-              <Tooltip key={width}>
-                <TooltipTrigger asChild>
-                  <button
-                    className={cn(
-                      "w-8 h-8 rounded flex items-center justify-center border transition-colors",
-                      strokeWidth === width
-                        ? "border-primary bg-primary/20"
-                        : "border-transparent hover:bg-secondary"
-                    )}
-                    onClick={() => handleStrokeWidthChange(width)}
-                  >
-                    <div
-                      className="rounded-full bg-foreground"
-                      style={{ width: Math.min(width * 3, 16), height: Math.min(width * 3, 16) }}
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent><p>{width}px</p></TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-        </div>
-      </div>
+  <div className="flex items-center gap-1 md:gap-2">
+    <span className="text-xs text-muted-foreground mr-1 hidden md:inline">Width</span>
+    <div className="flex gap-1">
+      {STROKE_WIDTHS.map((width) => (
+        <Tooltip key={width}>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                "w-9 h-9 md:w-8 md:h-8 rounded flex items-center justify-center border transition-colors active:scale-95",
+                strokeWidth === width
+                  ? "border-primary bg-primary/20"
+                  : "border-transparent hover:bg-secondary"
+              )}
+              onClick={() => handleStrokeWidthChange(width)}
+            >
+              <div
+                className="rounded-full bg-foreground"
+                style={{ width: Math.min(width * 3, 16), height: Math.min(width * 3, 16) }}
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="hidden md:block"><p>{width}px</p></TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  </div>
+</div>
 
       {/* Right Toolbar - Zoom Controls */}
-      <div className="absolute right-4 bottom-4 flex items-center gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-1 shadow-lg">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleZoomOut}>
-              <Minus size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom Out</TooltipContent>
-        </Tooltip>
+<div className="absolute right-4 bottom-4 md:bottom-4 sm:bottom-20 flex items-center gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-1 shadow-lg">
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="ghost" size="icon" className="w-9 h-9 md:w-8 md:h-8" onClick={handleZoomOut}>
+        <Minus size={18} className="md:w-4 md:h-4" />
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent className="hidden md:block">Zoom Out</TooltipContent>
+  </Tooltip>
 
-        <span className="text-sm font-mono w-14 text-center">{Math.round(zoom * 100)}%</span>
+  <span className="text-sm font-mono w-12 md:w-14 text-center text-xs md:text-sm">{Math.round(zoom * 100)}%</span>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleZoomIn}>
-              <Plus size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Zoom In</TooltipContent>
-        </Tooltip>
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="ghost" size="icon" className="w-9 h-9 md:w-8 md:h-8" onClick={handleZoomIn}>
+        <Plus size={18} className="md:w-4 md:h-4" />
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent className="hidden md:block">Zoom In</TooltipContent>
+  </Tooltip>
 
-        <div className="w-px h-6 bg-border mx-1" />
+  <div className="w-px h-6 bg-border mx-1" />
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleResetView}>
-              <RotateCcw size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Reset View</TooltipContent>
-        </Tooltip>
-      </div>
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="ghost" size="icon" className="w-9 h-9 md:w-8 md:h-8" onClick={handleResetView}>
+        <RotateCcw size={18} className="md:w-4 md:h-4" />
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent className="hidden md:block">Reset View</TooltipContent>
+  </Tooltip>
+</div>
 
       <SaveCanvasModal open={saveModalOpen} onOpenChange={setSaveModalOpen} />
       <LoadCanvasModal open={loadModalOpen} onOpenChange={setLoadModalOpen} />
