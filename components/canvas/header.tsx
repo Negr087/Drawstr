@@ -201,40 +201,73 @@ export function Header({
           </Button>
 
           {/* Mobile Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="sm:hidden">
-                <Menu size={20} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="z-[100]">
-              {zapTarget && (
-                <DropdownMenuItem onClick={() => setShowZapModal(true)} className="text-yellow-400">
-                  <Zap size={14} className="mr-2 fill-yellow-400" />
-                  Zap creator
-                </DropdownMenuItem>
-              )}
-              {user && !user.readOnly && (
-                <DropdownMenuItem onClick={onPostToNostr}>
-                  <Zap size={14} className="mr-2" />
-                  Post to Nostr
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={onShare}>
-                <Share2 size={14} className="mr-2" />
-                Share
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onExport}>
-                <Download size={14} className="mr-2" />
-                Export
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onClearCanvas} className="text-destructive">
-                <Trash2 size={14} className="mr-2" />
-                Clear Canvas
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+<DropdownMenu modal={false}>
+  <DropdownMenuTrigger asChild>
+    <Button 
+      variant="ghost" 
+      size="icon" 
+      className="sm:hidden"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <Menu size={20} />
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent 
+    align="end" 
+    className="z-[9999] w-56"
+    sideOffset={5}
+    onCloseAutoFocus={(e) => e.preventDefault()}
+  >
+    {zapTarget && (
+      <DropdownMenuItem 
+        onClick={() => setShowZapModal(true)} 
+        className="text-yellow-400 cursor-pointer"
+        onSelect={(e) => e.preventDefault()}
+      >
+        <Zap size={14} className="mr-2 fill-yellow-400" />
+        Zap creator
+      </DropdownMenuItem>
+    )}
+    {user && !user.readOnly && (
+      <DropdownMenuItem 
+        onClick={onPostToNostr}
+        className="cursor-pointer"
+        onSelect={(e) => e.preventDefault()}
+      >
+        <Zap size={14} className="mr-2" />
+        Post to Nostr
+      </DropdownMenuItem>
+    )}
+    <DropdownMenuItem 
+      onClick={onShare}
+      className="cursor-pointer"
+      onSelect={(e) => e.preventDefault()}
+    >
+      <Share2 size={14} className="mr-2" />
+      Share
+    </DropdownMenuItem>
+    <DropdownMenuItem 
+      onClick={onExport}
+      className="cursor-pointer"
+      onSelect={(e) => e.preventDefault()}
+    >
+      <Download size={14} className="mr-2" />
+      Export
+    </DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem 
+      onClick={onClearCanvas} 
+      className="text-destructive cursor-pointer"
+      onSelect={(e) => e.preventDefault()}
+    >
+      <Trash2 size={14} className="mr-2" />
+      Clear Canvas
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
 
           {/* User Menu */}
           {user ? (
