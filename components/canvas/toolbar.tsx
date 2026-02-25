@@ -339,7 +339,7 @@ export function Toolbar() {
 </div>
 
       {/* Right Toolbar - Zoom Controls */}
-<div className="absolute right-4 bottom-4 md:bottom-4 sm:bottom-20 flex items-center gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-1 shadow-lg">
+<div className="absolute right-4 bottom-32 md:bottom-4 flex items-center gap-1 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-1 shadow-lg">
   <Tooltip>
     <TooltipTrigger asChild>
       <Button variant="ghost" size="icon" className="w-9 h-9 md:w-8 md:h-8" onClick={handleZoomOut}>
