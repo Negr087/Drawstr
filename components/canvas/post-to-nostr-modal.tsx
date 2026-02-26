@@ -71,7 +71,10 @@ export function PostToNostrModal({ open, onOpenChange }: PostToNostrModalProps) 
         const screenshot = generateScreenshot();
         console.log("Screenshot generated:", screenshot ? "success" : "failed");
         setImageData(screenshot);
-        setContent(`Check out my drawing on NostrDraw! 🎨\n\n${window.location.origin}/canvas/${canvasId}`);
+        const shareUrl = user 
+  ? `${window.location.origin}/canvas/${canvasId}?author=${user.pubkey}&view=true`
+  : `${window.location.origin}/canvas/${canvasId}`;
+setContent(`Check out my drawing on NostrDraw! 🎨\n\n${shareUrl}`);
         setIncludeImage(true);
         setPosted(false);
         setError(null);
@@ -114,7 +117,10 @@ export function PostToNostrModal({ open, onOpenChange }: PostToNostrModalProps) 
       }
 
       // Use provided content or default message
-      const noteContent = content.trim() || `Check out my drawing on NostrDraw! 🎨\n\n${window.location.origin}/canvas/${canvasId}`;
+      const shareUrl = user 
+  ? `${window.location.origin}/canvas/${canvasId}?author=${user.pubkey}&view=true`
+  : `${window.location.origin}/canvas/${canvasId}`;
+const noteContent = content.trim() || `Check out my drawing on NostrDraw! 🎨\n\n${shareUrl}`;
 
       // Publish note with image
       setUploadStatus("Publishing to Nostr...");
