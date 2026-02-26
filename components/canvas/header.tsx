@@ -25,6 +25,13 @@ import {
   Zap,
 } from "lucide-react";
 import { ZapModal } from "@/components/canvas/zap-modal";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 interface HeaderProps {
   onExport: () => void;
@@ -201,49 +208,66 @@ export function Header({
           </Button>
 
           {/* Mobile Menu */}
-<DropdownMenu>
-  <DropdownMenuTrigger asChild>
-    <Button 
-      variant="ghost" 
-      size="icon" 
-      className="sm:hidden"
-    >
+<Sheet>
+  <SheetTrigger asChild>
+    <Button variant="ghost" size="icon" className="sm:hidden">
       <Menu size={20} />
     </Button>
-  </DropdownMenuTrigger>
-  <DropdownMenuContent 
-    align="end" 
-    className="z-[100]"
-    side="bottom"
-    sideOffset={8}
-  >
-    {zapTarget && (
-      <DropdownMenuItem onClick={() => setShowZapModal(true)} className="text-yellow-400">
-        <Zap size={14} className="mr-2 fill-yellow-400" />
-        Zap creator
-      </DropdownMenuItem>
-    )}
-    {user && !user.readOnly && (
-      <DropdownMenuItem onClick={onPostToNostr}>
-        <Zap size={14} className="mr-2" />
-        Post to Nostr
-      </DropdownMenuItem>
-    )}
-    <DropdownMenuItem onClick={onShare}>
-      <Share2 size={14} className="mr-2" />
-      Share
-    </DropdownMenuItem>
-    <DropdownMenuItem onClick={onExport}>
-      <Download size={14} className="mr-2" />
-      Export
-    </DropdownMenuItem>
-    <DropdownMenuSeparator />
-    <DropdownMenuItem onClick={onClearCanvas} className="text-destructive">
-      <Trash2 size={14} className="mr-2" />
-      Clear Canvas
-    </DropdownMenuItem>
-  </DropdownMenuContent>
-</DropdownMenu>
+  </SheetTrigger>
+  <SheetContent side="right" className="w-[300px]">
+    <SheetHeader>
+      <SheetTitle>Menu</SheetTitle>
+    </SheetHeader>
+    <div className="flex flex-col gap-2 mt-6">
+      {zapTarget && (
+        <Button
+          variant="outline"
+          className="justify-start gap-2 text-yellow-400 border-yellow-500/40"
+          onClick={() => {
+            setShowZapModal(true);
+          }}
+        >
+          <Zap size={16} className="fill-yellow-400" />
+          Zap creator
+        </Button>
+      )}
+      {user && !user.readOnly && (
+        <Button
+          variant="default"
+          className="justify-start gap-2 bg-gradient-to-r from-purple-600 to-pink-600"
+          onClick={onPostToNostr}
+        >
+          <Zap size={16} />
+          Post to Nostr
+        </Button>
+      )}
+      <Button
+        variant="outline"
+        className="justify-start gap-2"
+        onClick={onShare}
+      >
+        <Share2 size={16} />
+        Share
+      </Button>
+      <Button
+        variant="outline"
+        className="justify-start gap-2"
+        onClick={onExport}
+      >
+        <Download size={16} />
+        Export
+      </Button>
+      <Button
+        variant="destructive"
+        className="justify-start gap-2 mt-4"
+        onClick={onClearCanvas}
+      >
+        <Trash2 size={16} />
+        Clear Canvas
+      </Button>
+    </div>
+  </SheetContent>
+</Sheet>
 
           {/* User Menu */}
           {user ? (
