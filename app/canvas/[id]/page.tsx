@@ -109,6 +109,12 @@ useEffect(() => {
   }
 }, [canvasAuthor?.pubkey, user]);
 
+useEffect(() => {
+  if (isViewOnly) {
+    useCanvasStore.getState().setActiveTool("hand");
+  }
+}, [isViewOnly]);
+
   // Initialize canvas
   useEffect(() => {
     setCanvasId(canvasId);
