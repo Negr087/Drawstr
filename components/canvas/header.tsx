@@ -201,68 +201,44 @@ export function Header({
           </Button>
 
           {/* Mobile Menu */}
-<DropdownMenu modal={false}>
+<DropdownMenu>
   <DropdownMenuTrigger asChild>
     <Button 
       variant="ghost" 
       size="icon" 
       className="sm:hidden"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
     >
       <Menu size={20} />
     </Button>
   </DropdownMenuTrigger>
   <DropdownMenuContent 
     align="end" 
-    className="z-[9999] w-56"
-    sideOffset={5}
-    onCloseAutoFocus={(e) => e.preventDefault()}
+    className="z-[100]"
+    side="bottom"
+    sideOffset={8}
   >
     {zapTarget && (
-      <DropdownMenuItem 
-        onClick={() => setShowZapModal(true)} 
-        className="text-yellow-400 cursor-pointer"
-        onSelect={(e) => e.preventDefault()}
-      >
+      <DropdownMenuItem onClick={() => setShowZapModal(true)} className="text-yellow-400">
         <Zap size={14} className="mr-2 fill-yellow-400" />
         Zap creator
       </DropdownMenuItem>
     )}
     {user && !user.readOnly && (
-      <DropdownMenuItem 
-        onClick={onPostToNostr}
-        className="cursor-pointer"
-        onSelect={(e) => e.preventDefault()}
-      >
+      <DropdownMenuItem onClick={onPostToNostr}>
         <Zap size={14} className="mr-2" />
         Post to Nostr
       </DropdownMenuItem>
     )}
-    <DropdownMenuItem 
-      onClick={onShare}
-      className="cursor-pointer"
-      onSelect={(e) => e.preventDefault()}
-    >
+    <DropdownMenuItem onClick={onShare}>
       <Share2 size={14} className="mr-2" />
       Share
     </DropdownMenuItem>
-    <DropdownMenuItem 
-      onClick={onExport}
-      className="cursor-pointer"
-      onSelect={(e) => e.preventDefault()}
-    >
+    <DropdownMenuItem onClick={onExport}>
       <Download size={14} className="mr-2" />
       Export
     </DropdownMenuItem>
     <DropdownMenuSeparator />
-    <DropdownMenuItem 
-      onClick={onClearCanvas} 
-      className="text-destructive cursor-pointer"
-      onSelect={(e) => e.preventDefault()}
-    >
+    <DropdownMenuItem onClick={onClearCanvas} className="text-destructive">
       <Trash2 size={14} className="mr-2" />
       Clear Canvas
     </DropdownMenuItem>
