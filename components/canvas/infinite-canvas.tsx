@@ -12,6 +12,7 @@ import type {
   RectangleElement,
   EllipseElement,
   ArrowElement,
+  LineElement,
   FreedrawElement,
   TextElement,
   ImageElement,
@@ -38,6 +39,11 @@ export function InfiniteCanvas({ canvasId }: InfiniteCanvasProps) {
     originalElements?: CanvasElement[];
     originalGroupBounds?: { x: number; y: number; width: number; height: number };
   } | null>(null);
+  const [curving, setCurving] = useState<{  // ← AGREGAR ESTO
+  lineId: string;
+  startPoint: Point;
+  originalLine: LineElement;
+} | null>(null);
   const [selectionBox, setSelectionBox] = useState<{
     start: Point;
     current: Point;
@@ -264,6 +270,23 @@ useEffect(() => {
           break;
         }
 
+        case "line": {  // ← AGREGAR ESTE CASO
+  const line = element as LineElement;
+  if (line.points.length < 2) break;
+
+  ctx.beginPath();
+  ctx.moveTo(
+    line.x + line.points[0].x,
+    line.y + line.points[0].y
+  );
+  ctx.lineTo(
+    line.x + line.points[1].x,
+    line.y + line.points[1].y
+  );
+  ctx.stroke();
+  break;
+}
+
         case "freedraw": {
           const freedraw = element as FreedrawElement;
           if (freedraw.points.length < 2) break;
@@ -394,8 +417,30 @@ Object.entries(handles).forEach(([key, { x, y }]) => {
     ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
   }
 });
-      }
-      
+     
+      // Dibujar punto de control para líneas
+if (element.type === 'line') {
+  const line = element as LineElement;
+  if (line.points.length >= 2) {
+    // Calcular punto medio por defecto
+    const start = { x: line.x + line.points[0].x, y: line.y + line.points[0].y };
+    const end = { x: line.x + line.points[1].x, y: line.y + line.points[1].y };
+    
+    const controlPoint = line.controlPoint 
+      ? { x: line.x + line.controlPoint.x, y: line.y + line.controlPoint.y }
+      : { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    
+    // Dibujar el punto de control (círculo vacío)
+    ctx.beginPath();
+    ctx.arc(controlPoint.x, controlPoint.y, 6 / zoom, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#00d9ff";
+    ctx.lineWidth = 2 / zoom;
+    ctx.stroke();
+  }
+}
+       }
       ctx.restore();
     },
     [viewportOffset, zoom, selectedElementIds, imageLoadTrigger]
@@ -593,6 +638,38 @@ ephemeralElements.forEach((element) => {
         return;
       }
 
+      // ===== NUEVO: Check for line control point =====
+if (activeTool === "select" && selectedElementIds.size === 1) {
+  const element = elements.get(Array.from(selectedElementIds)[0]);
+  if (element && element.type === 'line') {
+    const line = element as LineElement;
+    if (line.points.length >= 2) {
+      const start = { x: line.x + line.points[0].x, y: line.y + line.points[0].y };
+      const end = { x: line.x + line.points[1].x, y: line.y + line.points[1].y };
+      
+      const controlPoint = line.controlPoint 
+        ? { x: line.x + line.controlPoint.x, y: line.y + line.controlPoint.y }
+        : { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      
+      const handleSize = 8;
+      const dist = Math.sqrt(
+        Math.pow(point.x - controlPoint.x, 2) + 
+        Math.pow(point.y - controlPoint.y, 2)
+      );
+      
+      if (dist <= handleSize) {
+        console.log("🎯 Detected line control point click!");
+        setCurving({
+          lineId: line.id,
+          startPoint: point,
+          originalLine: line,
+        });
+        return;
+      }
+    }
+  }
+}
+
       // Check for rotation handle
 if (activeTool === "select" && selectedElementIds.size === 1) {
   const element = elements.get(Array.from(selectedElementIds)[0]);
@@ -618,7 +695,6 @@ if (activeTool === "select" && selectedElementIds.size === 1) {
     }
   }
 }
-
       // Check for resize handles
 if (activeTool === "select" && selectedElementIds.size >= 1) {
   // Calcular bounds del grupo seleccionado
@@ -631,6 +707,7 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
   const handleSize = 8 / zoom;
 
   for (const [key, handlePos] of Object.entries(handles)) {
+    if (key === 'rotate') continue;
     if (
       Math.abs(point.x - handlePos.x) <= handleSize &&
       Math.abs(point.y - handlePos.y) <= handleSize
@@ -757,6 +834,16 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
             points: [{ x: 0, y: 0 }],
             endArrowhead: "arrow",
           } as ArrowElement);
+          break;
+
+          case "line":
+           setCurrentElement({
+            ...baseElement,
+            type: "line",
+            x: point.x,
+            y: point.y,
+            points: [{ x: 0, y: 0 }],
+          } as LineElement);
           break;
 
         case "freedraw":
@@ -1057,6 +1144,28 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           } as ArrowElement);
           break;
 
+          case "line":  // ← AGREGAR ESTE CASO (igual que arrow pero sin arrowhead)
+  let lineDx = point.x - currentElement.x;
+  let lineDy = point.y - currentElement.y;
+
+  if (e.shiftKey) {
+    const angle = Math.atan2(lineDy, lineDx);
+    const snap = Math.PI / 12;
+    const snappedAngle = Math.round(angle / snap) * snap;
+    const dist = Math.sqrt(lineDx * lineDx + lineDy * lineDy);
+    lineDx = Math.cos(snappedAngle) * dist;
+    lineDy = Math.sin(snappedAngle) * dist;
+  }
+
+  setCurrentElement({
+    ...currentElement,
+    points: [
+      { x: 0, y: 0 },
+      { x: lineDx, y: lineDy },
+    ],
+  } as LineElement);
+  break;
+
         case "freedraw":
           setCurrentElement({
             ...currentElement,
@@ -1132,6 +1241,16 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
             isValid = dist > 5;
           }
           break;
+
+          case "line":  // ← AGREGAR ESTE CASO
+  const line = currentElement as LineElement;
+  if (line.points.length >= 2) {
+    const lastPoint = line.points[line.points.length - 1];
+    const dist = Math.sqrt(lastPoint.x * lastPoint.x + lastPoint.y * lastPoint.y);
+    isValid = dist > 5;
+  }
+  break;
+
         case "freedraw":
           isValid = (currentElement as FreedrawElement).points.length > 2;
           break;
@@ -1662,6 +1781,20 @@ function getGroupBounds(elements: CanvasElement[]) {
 }
 
 function isPointInElement(point: Point, element: CanvasElement): boolean {
+  // Para líneas y arrows, verificar distancia al path
+  if (element.type === 'line' || element.type === 'arrow') {
+    const lineEl = element as LineElement | ArrowElement;
+    if (lineEl.points.length < 2) return false;
+    
+    const start = { x: lineEl.x + lineEl.points[0].x, y: lineEl.y + lineEl.points[0].y };
+    const end = { x: lineEl.x + lineEl.points[lineEl.points.length - 1].x, y: lineEl.y + lineEl.points[lineEl.points.length - 1].y };
+    
+    // Distancia del punto a la línea
+    const distToLine = distanceToLineSegment(point, start, end);
+    return distToLine <= 8; // 8 pixels de tolerancia
+  }
+  
+  // Para otros elementos, usar bounds
   const bounds = getElementBounds(element);
   const padding = 5;
   return (
@@ -1669,6 +1802,33 @@ function isPointInElement(point: Point, element: CanvasElement): boolean {
     point.x <= bounds.x + bounds.width + padding &&
     point.y >= bounds.y - padding &&
     point.y <= bounds.y + bounds.height + padding
+  );
+}
+
+// Helper: calcular distancia de un punto a un segmento de línea
+function distanceToLineSegment(point: Point, lineStart: Point, lineEnd: Point): number {
+  const dx = lineEnd.x - lineStart.x;
+  const dy = lineEnd.y - lineStart.y;
+  const lengthSquared = dx * dx + dy * dy;
+  
+  if (lengthSquared === 0) {
+    // La línea es un punto
+    return Math.sqrt(
+      Math.pow(point.x - lineStart.x, 2) + 
+      Math.pow(point.y - lineStart.y, 2)
+    );
+  }
+  
+  // Proyección del punto sobre la línea
+  let t = ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) / lengthSquared;
+  t = Math.max(0, Math.min(1, t));
+  
+  const projectionX = lineStart.x + t * dx;
+  const projectionY = lineStart.y + t * dy;
+  
+  return Math.sqrt(
+    Math.pow(point.x - projectionX, 2) + 
+    Math.pow(point.y - projectionY, 2)
   );
 }
 

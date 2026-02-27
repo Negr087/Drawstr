@@ -37,9 +37,10 @@ const tools: { id: Tool; icon: React.ReactNode; label: string; shortcut: string 
   { id: "rectangle", icon: <Square size={18} />, label: "Rectangle", shortcut: "R" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse", shortcut: "O" },
   { id: "arrow", icon: <ArrowUpRight size={18} />, label: "Arrow", shortcut: "A" },
+  { id: "line", icon: <Minus size={18} />, label: "Line", shortcut: "L" }, // ← AGREGAR (usamos Minus como icono)
   { id: "freedraw", icon: <Pencil size={18} />, label: "Draw", shortcut: "P" },
   { id: "text", icon: <Type size={18} />, label: "Text", shortcut: "T" },
-  { id: "laser", icon: <Zap size={18} />, label: "Laser Pointer", shortcut: "L" },
+  { id: "laser", icon: <Zap size={18} />, label: "Laser Pointer", shortcut: "K" }, // ← Cambiá el shortcut de L a K (porque line ya usa L)
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser", shortcut: "E" },
   { id: "hand", icon: <Hand size={18} />, label: "Pan", shortcut: "H" },
 ];

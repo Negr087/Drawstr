@@ -4,6 +4,7 @@ export type Tool =
   | 'rectangle'
   | 'ellipse'
   | 'arrow'
+  |'line'
   | 'freedraw'
   | 'text'
   | 'eraser'
@@ -15,6 +16,7 @@ export type ElementType =
   | 'rectangle'
   | 'ellipse'
   | 'arrow'
+  | 'line'
   | 'freedraw'
   | 'text'
   | 'image';
@@ -67,6 +69,13 @@ export interface ArrowElement extends BaseElement {
   endArrowhead?: 'none' | 'arrow';
 }
 
+export interface LineElement extends BaseElement {
+  type: 'line';
+  points: Point[]; // Siempre 2 puntos (inicio y fin)
+  curved?: boolean; // ← AGREGAR: indica si la línea es curva
+  controlPoint?: Point; // ← AGREGAR: punto de control para la curva Bézier
+}
+
 export interface FreedrawElement extends BaseElement {
   type: 'freedraw';
   points: Point[];
@@ -95,6 +104,7 @@ export type CanvasElement =
   | RectangleElement
   | EllipseElement
   | ArrowElement
+  | LineElement
   | FreedrawElement
   | TextElement
   | ImageElement;
