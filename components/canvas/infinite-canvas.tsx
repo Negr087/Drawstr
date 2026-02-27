@@ -168,6 +168,16 @@ useEffect(() => {
       ctx.translate(viewportOffset.x, viewportOffset.y);
       ctx.scale(zoom, zoom);
 
+      if (element.rotation) {
+  const bounds = getElementBounds(element);
+  const centerX = bounds.x + bounds.width / 2;
+  const centerY = bounds.y + bounds.height / 2;
+  
+  ctx.translate(centerX, centerY);
+  ctx.rotate((element.rotation * Math.PI) / 180);
+  ctx.translate(-centerX, -centerY);
+}
+
       ctx.strokeStyle = element.strokeColor;
       ctx.fillStyle = element.fillColor;
       ctx.lineWidth = element.strokeWidth;
@@ -358,15 +368,32 @@ useEffect(() => {
         );
         ctx.setLineDash([]);
         
-        const handleSize = 8 / zoom;
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "#00d9ff";
-        ctx.lineWidth = 1 / zoom;
-        const handles = getResizeHandles(bounds);
-        Object.values(handles).forEach(({ x, y }) => {
-          ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
-          ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
-        });
+        // Draw resize handles
+const handleSize = 8 / zoom;
+ctx.fillStyle = "#ffffff";
+ctx.strokeStyle = "#00d9ff";
+ctx.lineWidth = 1 / zoom;
+
+const handles = getResizeHandles(bounds);
+Object.entries(handles).forEach(([key, { x, y }]) => {
+  if (key === 'rotate') {
+    // Dibujar handle de rotación (círculo)
+    ctx.beginPath();
+    ctx.arc(x, y, handleSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Línea desde el top center hasta el handle de rotación
+    ctx.beginPath();
+    ctx.moveTo(bounds.x + bounds.width / 2, bounds.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  } else {
+    // Handles normales (cuadrados)
+    ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize);
+  }
+});
       }
       
       ctx.restore();
@@ -566,6 +593,32 @@ ephemeralElements.forEach((element) => {
         return;
       }
 
+      // Check for rotation handle
+if (activeTool === "select" && selectedElementIds.size === 1) {
+  const element = elements.get(Array.from(selectedElementIds)[0]);
+  if (element) {
+    const bounds = getElementBounds(element);
+    const handles = getResizeHandles(bounds);
+    const handleSize = 8 / zoom;
+    
+    const rotateHandle = handles.rotate;
+    if (
+      Math.abs(point.x - rotateHandle.x) <= handleSize &&
+      Math.abs(point.y - rotateHandle.y) <= handleSize
+    ) {
+      console.log("🎯 Detected rotation handle click!");
+      // Iniciar rotación
+      setResizing({
+        id: element.id,
+        handle: "rotate",
+        startPoint: point,
+        originalElement: element,
+      });
+      return;
+    }
+  }
+}
+
       // Check for resize handles
 if (activeTool === "select" && selectedElementIds.size >= 1) {
   // Calcular bounds del grupo seleccionado
@@ -665,7 +718,8 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
         fillColor,
         strokeWidth,
         opacity: 1,
-        zIndex: now, // ← NUEVO: usar timestamp como zIndex inicial
+        zIndex: now,
+        rotation: 0,
         createdAt: now,
         updatedAt: now,
         createdBy: currentUser?.pubkey || "anonymous",
@@ -823,6 +877,33 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
       }
 
       if (resizing) {
+         if (resizing.handle === "rotate") {
+    const element = elements.get(resizing.id);
+    if (!element) return;
+    
+    const bounds = getElementBounds(element);
+    const centerX = bounds.x + bounds.width / 2;
+    const centerY = bounds.y + bounds.height / 2;
+    
+    // Calcular ángulo desde el centro
+    const startAngle = Math.atan2(
+      resizing.startPoint.y - centerY,
+      resizing.startPoint.x - centerX
+    );
+    const currentAngle = Math.atan2(
+      point.y - centerY,
+      point.x - centerX
+    );
+    
+    // Diferencia en radianes, convertir a grados
+    const deltaAngle = (currentAngle - startAngle) * (180 / Math.PI);
+    const originalRotation = resizing.originalElement.rotation || 0;
+    const newRotation = (originalRotation + deltaAngle) % 360;
+    console.log("🔄 ROTATING:", { deltaAngle, originalRotation, newRotation });
+    
+    updateElement(resizing.id, { rotation: newRotation });
+    return;
+  }
   const dx = point.x - resizing.startPoint.x;
   const dy = point.y - resizing.startPoint.y;
   const { handle, originalElements, originalGroupBounds } = resizing;
@@ -1192,6 +1273,14 @@ const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+    if (
+      target instanceof HTMLInputElement || 
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    ) {
+      return;
+    }
   if (e.key === "Delete" || e.key === "Backspace") {
     // ========== AGREGAR ESTA VALIDACIÓN ==========
     if (!user) return; // Bloquear si no está logueado
@@ -1594,5 +1683,6 @@ function getResizeHandles(bounds: { x: number; y: number; width: number; height:
     s: { x: x + width / 2, y: y + height },
     sw: { x, y: y + height },
     w: { x, y: y + height / 2 },
+    rotate: { x: x + width / 2, y: y - 30 },
   };
 }

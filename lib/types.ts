@@ -41,6 +41,7 @@ export interface BaseElement {
   strokeWidth: number;
   opacity: number;
   zIndex: number;
+  rotation?: number;
   createdAt: number;
   updatedAt: number;
   createdBy: string; // pubkey
