@@ -270,19 +270,33 @@ useEffect(() => {
           break;
         }
 
-        case "line": {  // ← AGREGAR ESTE CASO
+        case "line": {
   const line = element as LineElement;
   if (line.points.length < 2) break;
 
+  const start = { x: line.x + line.points[0].x, y: line.y + line.points[0].y };
+  const end = { x: line.x + line.points[1].x, y: line.y + line.points[1].y };
+
   ctx.beginPath();
-  ctx.moveTo(
-    line.x + line.points[0].x,
-    line.y + line.points[0].y
-  );
-  ctx.lineTo(
-    line.x + line.points[1].x,
-    line.y + line.points[1].y
-  );
+  ctx.moveTo(start.x, start.y);
+  
+  if (line.curved && line.controlPoint) {
+    // Dibujar curva cuadrática Bézier
+    const controlPoint = {
+      x: line.x + line.controlPoint.x,
+      y: line.y + line.controlPoint.y
+    };
+    ctx.quadraticCurveTo(
+      controlPoint.x,
+      controlPoint.y,
+      end.x,
+      end.y
+    );
+  } else {
+    // Dibujar línea recta normal
+    ctx.lineTo(end.x, end.y);
+  }
+  
   ctx.stroke();
   break;
 }
@@ -432,7 +446,7 @@ if (element.type === 'line') {
     
     // Dibujar el punto de control (círculo vacío)
     ctx.beginPath();
-    ctx.arc(controlPoint.x, controlPoint.y, 6 / zoom, 0, Math.PI * 2);
+    ctx.arc(controlPoint.x, controlPoint.y, handleSize / 2, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
     ctx.strokeStyle = "#00d9ff";
@@ -942,6 +956,28 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
         publishCursorPosition(point.x, point.y, canvasId);
       }
 
+      // ===== NUEVO: Manejar curving (arrastrar punto de control) =====
+    if (curving) {
+      const line = elements.get(curving.lineId) as LineElement;
+      if (!line || line.points.length < 2) return;
+      
+      // Calcular nuevo control point relativo al origen de la línea
+      const newControlPoint = {
+        x: point.x - line.x,
+        y: point.y - line.y,
+      };
+      
+      updateElement(curving.lineId, {
+        curved: true,
+        controlPoint: newControlPoint,
+      });
+      return;
+    }
+    if (activeTool === "select" && e.buttons === 0) {
+  // Mouse soltado, no hacer nada más
+  return;
+}
+
       if (draggingSelection && activeTool === "select") {
         const dx = point.x - draggingSelection.start.x;
         const dy = point.y - draggingSelection.start.y;
@@ -1200,6 +1236,16 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
+    if (curving) {
+    setCurving(null);
+    if (user) {
+      const finalElement = elements.get(curving.lineId);
+      if (finalElement) {
+        publishCanvasAction("update", finalElement, canvasId);
+      }
+    }
+    return;
+  }
     if (resizing) {
       setResizing(null);
       return;
@@ -1457,7 +1503,39 @@ if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))
 if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
   e.preventDefault();
   if (!user) return;
-  pasteElements();
+  
+  // Intentar pegar imagen del clipboard primero
+  navigator.clipboard.read().then(items => {
+    for (const item of items) {
+      const imageType = item.types.find(type => type.startsWith('image/'));
+      if (imageType) {
+        item.getType(imageType).then(blob => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            // Usar handleDrop logic para agregar la imagen
+            const img = new Image();
+            img.onload = () => {
+              // Pegar en el centro del viewport
+              const centerX = (-viewportOffset.x + dimensions.width / 2) / zoom;
+              const centerY = (-viewportOffset.y + dimensions.height / 2) / zoom;
+              
+              // Código de agregar imagen (mismo que handleDrop)...
+            };
+            img.src = dataUrl;
+          };
+          reader.readAsDataURL(blob);
+        });
+        return; // Encontramos imagen, no seguir
+      }
+    }
+    
+    // Si no hay imagen, pegar elementos copiados normalmente
+    pasteElements();
+  }).catch(() => {
+    // Fallback si falla clipboard.read
+    pasteElements();
+  });
 }
 
       if (e.key === "Escape") {
@@ -1791,7 +1869,7 @@ function isPointInElement(point: Point, element: CanvasElement): boolean {
     
     // Distancia del punto a la línea
     const distToLine = distanceToLineSegment(point, start, end);
-    return distToLine <= 8; // 8 pixels de tolerancia
+    return distToLine <= 12;
   }
   
   // Para otros elementos, usar bounds
