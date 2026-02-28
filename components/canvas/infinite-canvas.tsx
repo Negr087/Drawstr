@@ -1321,11 +1321,6 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           }
         }
       }
-
-      // Volver a select después de dibujar (excepto laser, eraser y hand)
-      if (!["laser", "eraser", "hand", "select"].includes(activeTool)) {
-        setActiveTool("select");
-      }
     }
 
     setIsDrawing(false);

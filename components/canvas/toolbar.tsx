@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils";
 import { SaveCanvasModal } from "@/components/canvas/save-canvas-modal";
 import { LoadCanvasModal } from "@/components/canvas/load-canvas-modal";
 import { Zap } from "lucide-react";
+import { EmojiPanel } from "./emoji-panel";
+import { generateId } from "@/lib/types";
 
 const tools: { id: Tool; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { id: "select", icon: <MousePointer2 size={18} />, label: "Select", shortcut: "V" },
@@ -69,6 +71,7 @@ export function Toolbar() {
     zoom,
     setZoom,
     setViewportOffset,
+    viewportOffset,
     elements,
     selectedElementIds,
     updateElement,
@@ -76,7 +79,7 @@ export function Toolbar() {
     canvasName,
   } = useCanvasStore();
 
-  const { saveCanvasState, user } = useNostr();
+  const { saveCanvasState, user, publishCanvasAction } = useNostr();
 
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loadModalOpen, setLoadModalOpen] = useState(false);
@@ -223,6 +226,73 @@ export function Toolbar() {
     }
   };
 
+  const handleEmojiSelect = useCallback(async (emoji: string) => {
+  // Insertar en el centro del viewport
+  const centerX = -viewportOffset.x / zoom + (typeof window !== 'undefined' ? window.innerWidth / 2 : 400) / zoom;
+  const centerY = -viewportOffset.y / zoom + (typeof window !== 'undefined' ? window.innerHeight / 2 : 300) / zoom;
+  
+  const now = Date.now();
+  
+  // Si es una URL (imagen), insertarla como ImageElement
+  if (emoji.startsWith('http://') || emoji.startsWith('https://')) {
+    const imageElement = {
+      id: generateId(),
+      type: "image" as const,
+      x: centerX - 50,
+      y: centerY - 50,
+      width: 100,
+      height: 100,
+      dataUrl: emoji, // URL de la imagen
+      strokeColor: "transparent",
+      fillColor: "transparent",
+      strokeWidth: 0,
+      opacity: 1,
+      zIndex: now,
+      rotation: 0,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: user?.pubkey || "anonymous",
+    };
+    
+    useCanvasStore.getState().addElement(imageElement);
+    
+    if (user) {
+      publishCanvasAction("add", imageElement, canvasId);
+    }
+  } else {
+    // Si es un emoji, insertarlo como TextElement
+    const textElement = {
+      id: generateId(),
+      type: "text" as const,
+      x: centerX,
+      y: centerY,
+      text: emoji,
+      fontSize: 48,
+      fontFamily: "Arial, sans-serif",
+      fontWeight: "normal" as const,
+      fontStyle: "normal" as const,
+      textDecoration: "none" as const,
+      strokeColor: strokeColor,
+      fillColor: "transparent",
+      strokeWidth: 0,
+      opacity: 1,
+      zIndex: now,
+      rotation: 0,
+      width: 48,
+      height: 48,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: user?.pubkey || "anonymous",
+    };
+    
+    useCanvasStore.getState().addElement(textElement);
+    
+    if (user) {
+      publishCanvasAction("add", textElement, canvasId);
+    }
+  }
+}, [viewportOffset, zoom, strokeColor, user, canvasId]);
+
   return (
     <TooltipProvider delayDuration={200}>
 
@@ -288,6 +358,9 @@ export function Toolbar() {
 
       {/* Bottom Toolbar - Colors & Stroke Width */}
 <div className="absolute bottom-24 md:bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 md:gap-4 bg-card/80 backdrop-blur-sm border border-border rounded-lg p-2 md:p-3 shadow-lg max-w-[95vw] overflow-x-auto">
+{/* Emoji Panel - AGREGAR ACÁ AL PRINCIPIO */}
+  <EmojiPanel onEmojiSelect={handleEmojiSelect} />
+  <div className="w-px h-8 bg-border mx-1 hidden md:block" />
   <div className="flex items-center gap-0.5 md:gap-2">
     <span className="text-xs text-muted-foreground mr-1 hidden md:inline">Stroke</span>
     <div className="flex gap-0.5 md:gap-1">
