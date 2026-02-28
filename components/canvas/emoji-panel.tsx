@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Smile } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCustomEmojis } from "@/lib/use-custom-emojis";
 
 interface EmojiPanelProps {
   onEmojiSelect: (emoji: string) => void;
@@ -22,6 +23,16 @@ const NOSTR_EMOJIS = [
     label: "Nostr Ostrich", 
     type: "image"
   },
+
+    // ===== AGREGAR ESTOS CUSTOM EMOJIS =====
+  { emoji: "🫂", label: "Hug", type: "emoji" },
+  { emoji: "🫡", label: "Salute", type: "emoji" },
+  { emoji: "🤝", label: "Handshake", type: "emoji" },
+  { emoji: "🫰", label: "Hand Heart", type: "emoji" },
+  { emoji: "🍊", label: "Orange Pill", type: "emoji" },
+  { emoji: "🌽", label: "Corn (Podcast)", type: "emoji" },
+  { emoji: "🐸", label: "Pepe", type: "emoji" },
+  { emoji: "🌊", label: "Wave", type: "emoji" },
   
   // Nostr culture
   { emoji: "🤙", label: "Shaka" },
@@ -44,6 +55,9 @@ export function EmojiPanel({ onEmojiSelect }: EmojiPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  const { customEmojis, loading } = useCustomEmojis();
+  const [activeTab, setActiveTab] = useState<"default" | "custom">("default");
 
   useEffect(() => {
     if (isOpen && buttonRef.current) {
@@ -108,38 +122,98 @@ export function EmojiPanel({ onEmojiSelect }: EmojiPanelProps) {
 
       {/* Emoji Grid (Portal) */}
       {isOpen && typeof window !== 'undefined' && createPortal(
-        <div 
-        data-emoji-panel
-          className="fixed bg-card border border-border rounded-lg p-3 shadow-xl z-[9999] w-64"
-          style={{
-            left: `${position.x}px`,
-            top: `${position.y}px`,
-          }}
-        >
-          <div className="text-xs text-muted-foreground mb-2 font-medium">Nostr Emojis</div>
-          <div className="grid grid-cols-4 gap-1">
-  {NOSTR_EMOJIS.map(({ emoji, label, type }) => (
-    <button
-      key={emoji}
-      onClick={() => handleEmojiClick(emoji)}
-      className="w-14 h-14 flex items-center justify-center hover:bg-secondary rounded transition-colors active:scale-95"
-      title={label}
-    >
-      {type === "image" ? (
-        <img 
-          src={emoji} 
-          alt={label} 
-          className="w-10 h-10 object-contain"
-        />
+  <div 
+    data-emoji-panel
+    className="fixed bg-card border border-border rounded-lg shadow-xl z-[9999] w-72"
+    style={{
+      left: `${position.x}px`,
+      top: `${position.y}px`,
+    }}
+  >
+    {/* Tabs */}
+    <div className="flex border-b border-border">
+      <button
+        className={cn(
+          "flex-1 px-4 py-2 text-sm font-medium transition-colors",
+          activeTab === "default" 
+            ? "bg-primary/10 text-primary border-b-2 border-primary" 
+            : "text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => setActiveTab("default")}
+      >
+        Nostr Emojis
+      </button>
+      <button
+        className={cn(
+          "flex-1 px-4 py-2 text-sm font-medium transition-colors",
+          activeTab === "custom" 
+            ? "bg-primary/10 text-primary border-b-2 border-primary" 
+            : "text-muted-foreground hover:text-foreground"
+        )}
+        onClick={() => setActiveTab("custom")}
+      >
+        Custom {customEmojis.length > 0 && `(${customEmojis.length})`}
+      </button>
+    </div>
+
+    {/* Content */}
+    <div className="p-3 max-h-80 overflow-y-auto">
+      {activeTab === "default" ? (
+        <div className="grid grid-cols-4 gap-1">
+          {NOSTR_EMOJIS.map(({ emoji, label, type }) => (
+            <button
+              key={emoji}
+              onClick={() => handleEmojiClick(emoji)}
+              className="w-14 h-14 flex items-center justify-center hover:bg-secondary rounded transition-colors active:scale-95"
+              title={label}
+            >
+              {type === "image" ? (
+                <img 
+                  src={emoji} 
+                  alt={label} 
+                  className="w-10 h-10 object-contain"
+                />
+              ) : (
+                <span className="text-3xl">{emoji}</span>
+              )}
+            </button>
+          ))}
+        </div>
       ) : (
-        <span className="text-3xl">{emoji}</span>
+        <div>
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Loading custom emojis...
+            </div>
+          ) : customEmojis.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              No custom emojis found.<br/>
+              <span className="text-xs">Check your relay connections.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-1">
+              {customEmojis.map((customEmoji) => (
+                <button
+                  key={`${customEmoji.source}-${customEmoji.shortcode}`}
+                  onClick={() => handleEmojiClick(customEmoji.url)}
+                  className="w-14 h-14 flex items-center justify-center hover:bg-secondary rounded transition-colors active:scale-95"
+                  title={customEmoji.shortcode}
+                >
+                  <img 
+                    src={customEmoji.url} 
+                    alt={customEmoji.shortcode}
+                    className="w-10 h-10 object-contain"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
-    </button>
-  ))}
-</div>
-        </div>,
-        document.body
-      )}
+    </div>
+  </div>,
+  document.body
+)}
     </>
   );
 }

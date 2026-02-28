@@ -33,6 +33,7 @@ import { LoadCanvasModal } from "@/components/canvas/load-canvas-modal";
 import { Zap } from "lucide-react";
 import { EmojiPanel } from "./emoji-panel";
 import { generateId } from "@/lib/types";
+import { uploadImageWithFallback } from "@/lib/nostr-build";
 
 const tools: { id: Tool; icon: React.ReactNode; label: string; shortcut: string }[] = [
   { id: "select", icon: <MousePointer2 size={18} />, label: "Select", shortcut: "V" },
@@ -227,38 +228,64 @@ export function Toolbar() {
   };
 
   const handleEmojiSelect = useCallback(async (emoji: string) => {
-  // Insertar en el centro del viewport
   const centerX = -viewportOffset.x / zoom + (typeof window !== 'undefined' ? window.innerWidth / 2 : 400) / zoom;
   const centerY = -viewportOffset.y / zoom + (typeof window !== 'undefined' ? window.innerHeight / 2 : 300) / zoom;
   
   const now = Date.now();
   
-  // Si es una URL (imagen), insertarla como ImageElement
-  if (emoji.startsWith('http://') || emoji.startsWith('https://')) {
-    const imageElement = {
-      id: generateId(),
-      type: "image" as const,
-      x: centerX - 50,
-      y: centerY - 50,
-      width: 100,
-      height: 100,
-      dataUrl: emoji, // URL de la imagen
-      strokeColor: "transparent",
-      fillColor: "transparent",
-      strokeWidth: 0,
-      opacity: 1,
-      zIndex: now,
-      rotation: 0,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: user?.pubkey || "anonymous",
+  // Si es una URL (imagen)
+  if (emoji.startsWith('http://') || emoji.startsWith('https://') || emoji.startsWith('/')) {
+    // Cargar la imagen primero
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = async () => {
+      // Convertir a canvas para obtener base64
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.drawImage(img, 0, 0);
+      const dataUrl = canvas.toDataURL('image/png');
+      
+      // Subir a nostr.build/imgur
+      const uploadedUrl = await uploadImageWithFallback(dataUrl);
+      const finalDataUrl = uploadedUrl || dataUrl;
+      
+      console.log("📸 Ostrich uploaded:", uploadedUrl ? "SUCCESS" : "FAILED");
+      
+      const imageElement = {
+        id: generateId(),
+        type: "image" as const,
+        x: centerX - 50,
+        y: centerY - 50,
+        width: 100,
+        height: 100,
+        dataUrl: finalDataUrl,
+        strokeColor: "transparent",
+        fillColor: "transparent",
+        strokeWidth: 0,
+        opacity: 1,
+        zIndex: now,
+        rotation: 0,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user?.pubkey || "anonymous",
+      };
+      
+      useCanvasStore.getState().addElement(imageElement);
+      
+      if (user) {
+        publishCanvasAction("add", imageElement, canvasId);
+      }
     };
     
-    useCanvasStore.getState().addElement(imageElement);
+    img.onerror = () => {
+      console.error("Failed to load ostrich image");
+    };
     
-    if (user) {
-      publishCanvasAction("add", imageElement, canvasId);
-    }
+    img.src = emoji;
   } else {
     // Si es un emoji, insertarlo como TextElement
     const textElement = {
