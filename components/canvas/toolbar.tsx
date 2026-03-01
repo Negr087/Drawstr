@@ -26,6 +26,10 @@ import {
   Check,
   Cloud,
   CloudOff,
+  Triangle,      // ← AGREGAR
+  Star,          // ← AGREGAR
+  Hexagon,       // ← AGREGAR
+  Diamond,       // ← AGREGAR
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SaveCanvasModal } from "@/components/canvas/save-canvas-modal";
@@ -39,11 +43,15 @@ const tools: { id: Tool; icon: React.ReactNode; label: string; shortcut: string 
   { id: "select", icon: <MousePointer2 size={18} />, label: "Select", shortcut: "V" },
   { id: "rectangle", icon: <Square size={18} />, label: "Rectangle", shortcut: "R" },
   { id: "ellipse", icon: <Circle size={18} />, label: "Ellipse", shortcut: "O" },
+  { id: "triangle", icon: <Triangle size={18} />, label: "Triangle", shortcut: "T" }, // ← AGREGAR
+  { id: "star", icon: <Star size={18} />, label: "Star", shortcut: "S" }, // ← AGREGAR
+  { id: "hexagon", icon: <Hexagon size={18} />, label: "Hexagon", shortcut: "G" }, // ← AGREGAR
+  { id: "diamond", icon: <Diamond size={18} />, label: "Diamond", shortcut: "D" }, // ← AGREGAR
   { id: "arrow", icon: <ArrowUpRight size={18} />, label: "Arrow", shortcut: "A" },
-  { id: "line", icon: <Minus size={18} />, label: "Line", shortcut: "L" }, // ← AGREGAR (usamos Minus como icono)
+  { id: "line", icon: <Minus size={18} />, label: "Line", shortcut: "L" },
   { id: "freedraw", icon: <Pencil size={18} />, label: "Draw", shortcut: "P" },
-  { id: "text", icon: <Type size={18} />, label: "Text", shortcut: "T" },
-  { id: "laser", icon: <Zap size={18} />, label: "Laser Pointer", shortcut: "K" }, // ← Cambiá el shortcut de L a K (porque line ya usa L)
+  { id: "text", icon: <Type size={18} />, label: "Text", shortcut: "Y" }, // ← Cambiar de T a Y (porque triangle usa T)
+  { id: "laser", icon: <Zap size={18} />, label: "Laser Pointer", shortcut: "K" },
   { id: "eraser", icon: <Eraser size={18} />, label: "Eraser", shortcut: "E" },
   { id: "hand", icon: <Hand size={18} />, label: "Pan", shortcut: "H" },
 ];

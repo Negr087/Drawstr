@@ -4,7 +4,11 @@ export type Tool =
   | 'rectangle'
   | 'ellipse'
   | 'arrow'
-  |'line'
+  | 'line'
+  | 'triangle'    // ← AGREGAR
+  | 'star'        // ← AGREGAR
+  | 'hexagon'     // ← AGREGAR
+  | 'diamond'     // ← AGREGAR
   | 'freedraw'
   | 'text'
   | 'eraser'
@@ -17,6 +21,10 @@ export type ElementType =
   | 'ellipse'
   | 'arrow'
   | 'line'
+  | 'triangle'    // ← AGREGAR
+  | 'star'        // ← AGREGAR
+  | 'hexagon'     // ← AGREGAR
+  | 'diamond'     // ← AGREGAR
   | 'freedraw'
   | 'text'
   | 'image';
@@ -58,6 +66,12 @@ export interface RectangleElement extends BaseElement {
 
 export interface EllipseElement extends BaseElement {
   type: 'ellipse';
+  width: number;
+  height: number;
+}
+
+export interface PolygonElement extends BaseElement {
+  type: 'triangle' | 'star' | 'hexagon' | 'diamond';
   width: number;
   height: number;
 }
@@ -105,6 +119,7 @@ export type CanvasElement =
   | EllipseElement
   | ArrowElement
   | LineElement
+  | PolygonElement
   | FreedrawElement
   | TextElement
   | ImageElement;

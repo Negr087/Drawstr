@@ -13,6 +13,7 @@ import type {
   EllipseElement,
   ArrowElement,
   LineElement,
+  PolygonElement,
   FreedrawElement,
   TextElement,
   ImageElement,
@@ -219,6 +220,106 @@ useEffect(() => {
           ctx.stroke();
           break;
         }
+
+        case "triangle": {
+  const triangle = element as PolygonElement;
+  const centerX = triangle.x + triangle.width / 2;
+  const topY = triangle.y;
+  const bottomY = triangle.y + triangle.height;
+  const leftX = triangle.x;
+  const rightX = triangle.x + triangle.width;
+
+  ctx.beginPath();
+  ctx.moveTo(centerX, topY); // Punta superior
+  ctx.lineTo(rightX, bottomY); // Esquina inferior derecha
+  ctx.lineTo(leftX, bottomY); // Esquina inferior izquierda
+  ctx.closePath();
+  
+  if (triangle.fillColor !== "transparent") {
+    ctx.fill();
+  }
+  ctx.stroke();
+  break;
+}
+
+case "diamond": {
+  const diamond = element as PolygonElement;
+  const centerX = diamond.x + diamond.width / 2;
+  const centerY = diamond.y + diamond.height / 2;
+  const left = diamond.x;
+  const right = diamond.x + diamond.width;
+  const top = diamond.y;
+  const bottom = diamond.y + diamond.height;
+
+  ctx.beginPath();
+  ctx.moveTo(centerX, top); // Arriba
+  ctx.lineTo(right, centerY); // Derecha
+  ctx.lineTo(centerX, bottom); // Abajo
+  ctx.lineTo(left, centerY); // Izquierda
+  ctx.closePath();
+  
+  if (diamond.fillColor !== "transparent") {
+    ctx.fill();
+  }
+  ctx.stroke();
+  break;
+}
+
+case "hexagon": {
+  const hex = element as PolygonElement;
+  const centerX = hex.x + hex.width / 2;
+  const centerY = hex.y + hex.height / 2;
+  const radiusX = Math.abs(hex.width / 2);
+  const radiusY = Math.abs(hex.height / 2);
+
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 2;
+    const x = centerX + radiusX * Math.cos(angle);
+    const y = centerY + radiusY * Math.sin(angle);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.closePath();
+  
+  if (hex.fillColor !== "transparent") {
+    ctx.fill();
+  }
+  ctx.stroke();
+  break;
+}
+
+case "star": {
+  const star = element as PolygonElement;
+  const centerX = star.x + star.width / 2;
+  const centerY = star.y + star.height / 2;
+  const outerRadius = Math.min(Math.abs(star.width), Math.abs(star.height)) / 2;
+  const innerRadius = outerRadius * 0.4;
+  const points = 5;
+
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const angle = (Math.PI * i) / points - Math.PI / 2;
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.closePath();
+  
+  if (star.fillColor !== "transparent") {
+    ctx.fill();
+  }
+  ctx.stroke();
+  break;
+}
 
         case "arrow": {
           const arrow = element as ArrowElement;
@@ -839,6 +940,20 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           } as EllipseElement);
           break;
 
+          case "triangle":
+case "star":
+case "hexagon":
+case "diamond":
+  setCurrentElement({
+    ...baseElement,
+    type: activeTool as "triangle" | "star" | "hexagon" | "diamond",
+    x: point.x,
+    y: point.y,
+    width: 0,
+    height: 0,
+  } as PolygonElement);
+  break;
+
         case "arrow":
           setCurrentElement({
             ...baseElement,
@@ -1158,6 +1273,27 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           } as RectangleElement | EllipseElement);
           break;
 
+          case "triangle":
+case "star":
+case "hexagon":
+case "diamond":
+  let shapeWidth = point.x - currentElement.x;
+  let shapeHeight = point.y - currentElement.y;
+
+  if (e.shiftKey) {
+    // Mantener proporción cuadrada con Shift
+    const side = Math.max(Math.abs(shapeWidth), Math.abs(shapeHeight));
+    shapeWidth = side * (shapeWidth < 0 ? -1 : 1);
+    shapeHeight = side * (shapeHeight < 0 ? -1 : 1);
+  }
+
+  setCurrentElement({
+    ...currentElement,
+    width: shapeWidth,
+    height: shapeHeight,
+  } as PolygonElement);
+  break;
+
         case "arrow":
           let dx = point.x - currentElement.x;
           let dy = point.y - currentElement.y;
@@ -1279,6 +1415,15 @@ if (activeTool === "select" && selectedElementIds.size >= 1) {
           const { width, height } = currentElement as RectangleElement | EllipseElement;
           isValid = Math.abs(width) > 5 || Math.abs(height) > 5;
           break;
+
+          case "triangle":
+  case "star":
+  case "hexagon":
+  case "diamond":
+    const polygon = currentElement as PolygonElement;
+    isValid = Math.abs(polygon.width) > 5 || Math.abs(polygon.height) > 5;
+    break;
+
         case "arrow":
           const arrow = currentElement as ArrowElement;
           if (arrow.points.length >= 2) {
@@ -1799,8 +1944,12 @@ function getElementBounds(element: CanvasElement) {
     case "rectangle":
     case "ellipse":
     case "text":
-    case "image": {
-      const e = element as RectangleElement | EllipseElement | TextElement | ImageElement;
+    case "image":
+    case "triangle": 
+    case "star": 
+    case "hexagon": 
+    case "diamond": {
+      const e = element as RectangleElement | EllipseElement | TextElement | ImageElement | PolygonElement;
       return {
         x: Math.min(e.x, e.x + e.width),
         y: Math.min(e.y, e.y + e.height),
