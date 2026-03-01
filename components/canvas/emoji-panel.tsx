@@ -192,20 +192,20 @@ export function EmojiPanel({ onEmojiSelect }: EmojiPanelProps) {
             </div>
           ) : (
             <div className="grid grid-cols-4 gap-1">
-              {customEmojis.map((customEmoji) => (
-                <button
-                  key={`${customEmoji.source}-${customEmoji.shortcode}`}
-                  onClick={() => handleEmojiClick(customEmoji.url)}
-                  className="w-14 h-14 flex items-center justify-center hover:bg-secondary rounded transition-colors active:scale-95"
-                  title={customEmoji.shortcode}
-                >
-                  <img 
-                    src={customEmoji.url} 
-                    alt={customEmoji.shortcode}
-                    className="w-10 h-10 object-contain"
-                  />
-                </button>
-              ))}
+              {customEmojis.map((customEmoji, index) => (
+  <button
+    key={`${customEmoji.source}-${customEmoji.shortcode}-${index}`}
+    onClick={() => handleEmojiClick(customEmoji.url)}
+    className="w-14 h-14 flex items-center justify-center hover:bg-secondary rounded transition-colors active:scale-95"
+    title={customEmoji.shortcode}
+  >
+    <img 
+      src={customEmoji.url} 
+      alt={customEmoji.shortcode}
+      className="w-10 h-10 object-contain"
+    />
+  </button>
+))}
             </div>
           )}
         </div>
