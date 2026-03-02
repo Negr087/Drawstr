@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@getalby/sdk':
+        specifier: ^7.0.0
+        version: 7.0.0(typescript@5.9.3)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -243,6 +246,14 @@ packages:
 
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
+
+  '@getalby/lightning-tools@6.1.0':
+    resolution: {integrity: sha512-rGurar9X4Gm+9xwoNYS8s9YLK7ZYqvbqv4KbHLYV0LEeB0HxZHRgmxblGqg+fYfp6iiYHx+edIgUpt9rS3VwFw==}
+    engines: {node: '>=14'}
+
+  '@getalby/sdk@7.0.0':
+    resolution: {integrity: sha512-0c8gyvFbRDHZIgHmOD/dfyPukxZLeidx/hx7SXlMIS/hsx4mXpKpo9Gx1zW90buElnd3k9TVB/S/bnFSEZPE7w==}
+    engines: {node: '>=14'}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -2973,6 +2984,15 @@ snapshots:
       react-dom: 18.3.1(react@18.3.1)
 
   '@floating-ui/utils@0.2.10': {}
+
+  '@getalby/lightning-tools@6.1.0': {}
+
+  '@getalby/sdk@7.0.0(typescript@5.9.3)':
+    dependencies:
+      '@getalby/lightning-tools': 6.1.0
+      nostr-tools: 2.23.1(typescript@5.9.3)
+    transitivePeerDependencies:
+      - typescript
 
   '@humanfs/core@0.19.1': {}
 

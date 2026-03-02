@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { NWCSettingsModal } from "@/components/settings/nwc-settings-modal";
+import { Settings } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useNostr } from "@/lib/nostr-context";
 import { Button } from "@/components/ui/button";
@@ -53,7 +55,7 @@ export function Header({
   canvasAuthorPicture,
 }: HeaderProps) {
   const [showZapModal, setShowZapModal] = useState(false);
-
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const { canvasName, setCanvasName, collaboratorCursors, canvasId } = useCanvasStore();
   const { user, logout } = useNostr();
 
@@ -160,114 +162,132 @@ export function Header({
           )}
         </div>
 
-        {/* Right - Actions */}
-        <div className="flex items-center gap-2">
-          {/* Zap button in header — only when viewing someone else's canvas */}
-          {zapTarget && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden sm:flex gap-2 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10 hover:border-yellow-500/60 bg-transparent"
-              onClick={() => setShowZapModal(true)}
-            >
-              <Zap size={14} className="fill-yellow-400" />
-              Zap
-            </Button>
-          )}
+       {/* Right - Actions */}
+<div className="flex items-center gap-2">
+  {/* Settings Button */}
+  <Button
+    variant="ghost"
+    size="icon"
+    className="hidden sm:flex"
+    onClick={() => setShowSettingsModal(true)}
+  >
+    <Settings size={18} />
+  </Button>
 
-          {user && !user.readOnly && (
-            <Button
-              variant="default"
-              size="sm"
-              className="hidden sm:flex gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-              onClick={onPostToNostr}
-            >
-              <Zap size={14} />
-              Post to Nostr
-            </Button>
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden sm:flex gap-2 bg-transparent"
-            onClick={onShare}
-          >
-            <Share2 size={14} />
-            Share
-          </Button>
-
-          <Button
-            variant="default"
-            size="sm"
-            className="hidden sm:flex gap-2"
-            onClick={onExport}
-          >
-            <Download size={14} />
-            Export
-          </Button>
-
-          {/* Mobile Menu */}
-<Sheet>
-  <SheetTrigger asChild>
-    <Button variant="ghost" size="icon" className="sm:hidden">
-      <Menu size={20} />
+  {/* Zap button in header — only when viewing someone else's canvas */}
+  {zapTarget && (
+    <Button
+      variant="outline"
+      size="sm"
+      className="hidden sm:flex gap-2 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10 hover:border-yellow-500/60 bg-transparent"
+      onClick={() => setShowZapModal(true)}
+    >
+      <Zap size={14} className="fill-yellow-400" />
+      Zap
     </Button>
-  </SheetTrigger>
-  <SheetContent side="right" className="w-[300px]">
-    <SheetHeader>
-      <SheetTitle>Menu</SheetTitle>
-    </SheetHeader>
-    <div className="flex flex-col gap-2 mt-6">
-      {zapTarget && (
+  )}
+
+  {user && !user.readOnly && (
+    <Button
+      variant="default"
+      size="sm"
+      className="hidden sm:flex gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+      onClick={onPostToNostr}
+    >
+      <Zap size={14} />
+      Post to Nostr
+    </Button>
+  )}
+
+  <Button
+    variant="outline"
+    size="sm"
+    className="hidden sm:flex gap-2 bg-transparent"
+    onClick={onShare}
+  >
+    <Share2 size={14} />
+    Share
+  </Button>
+
+  <Button
+    variant="default"
+    size="sm"
+    className="hidden sm:flex gap-2"
+    onClick={onExport}
+  >
+    <Download size={14} />
+    Export
+  </Button>
+
+  {/* Mobile Menu */}
+  <Sheet>
+    <SheetTrigger asChild>
+      <Button variant="ghost" size="icon" className="sm:hidden">
+        <Menu size={20} />
+      </Button>
+    </SheetTrigger>
+    <SheetContent side="right" className="w-[300px]">
+      <SheetHeader>
+        <SheetTitle>Menu</SheetTitle>
+      </SheetHeader>
+      <div className="flex flex-col gap-2 mt-6">
         <Button
           variant="outline"
-          className="justify-start gap-2 text-yellow-400 border-yellow-500/40"
-          onClick={() => {
-            setShowZapModal(true);
-          }}
+          className="justify-start gap-2"
+          onClick={() => setShowSettingsModal(true)}
         >
-          <Zap size={16} className="fill-yellow-400" />
-          Zap creator
+          <Settings size={16} />
+          Settings
         </Button>
-      )}
-      {user && !user.readOnly && (
+        {zapTarget && (
+          <Button
+            variant="outline"
+            className="justify-start gap-2 text-yellow-400 border-yellow-500/40"
+            onClick={() => {
+              setShowZapModal(true);
+            }}
+          >
+            <Zap size={16} className="fill-yellow-400" />
+            Zap creator
+          </Button>
+        )}
+        {user && !user.readOnly && (
+          <Button
+            variant="default"
+            className="justify-start gap-2 bg-gradient-to-r from-purple-600 to-pink-600"
+            onClick={onPostToNostr}
+          >
+            <Zap size={16} />
+            Post to Nostr
+          </Button>
+        )}
         <Button
-          variant="default"
-          className="justify-start gap-2 bg-gradient-to-r from-purple-600 to-pink-600"
-          onClick={onPostToNostr}
+          variant="outline"
+          className="justify-start gap-2"
+          onClick={onShare}
         >
-          <Zap size={16} />
-          Post to Nostr
+          <Share2 size={16} />
+          Share
         </Button>
-      )}
-      <Button
-        variant="outline"
-        className="justify-start gap-2"
-        onClick={onShare}
-      >
-        <Share2 size={16} />
-        Share
-      </Button>
-      <Button
-        variant="outline"
-        className="justify-start gap-2"
-        onClick={onExport}
-      >
-        <Download size={16} />
-        Export
-      </Button>
-      <Button
-        variant="destructive"
-        className="justify-start gap-2 mt-4"
-        onClick={onClearCanvas}
-      >
-        <Trash2 size={16} />
-        Clear Canvas
-      </Button>
-    </div>
-  </SheetContent>
-</Sheet>
+        <Button
+          variant="outline"
+          className="justify-start gap-2"
+          onClick={onExport}
+        >
+          <Download size={16} />
+          Export
+        </Button>
+        <Button
+          variant="destructive"
+          className="justify-start gap-2 mt-4"
+          onClick={onClearCanvas}
+        >
+          <Trash2 size={16} />
+          Clear Canvas
+        </Button>
+      </div>
+    </SheetContent>
+  </Sheet>
 
           {/* User Menu */}
           {user ? (
@@ -322,6 +342,13 @@ export function Header({
           canvasName={canvasName}
         />
       )}
-    </>
+
+      {/* NWC Settings Modal */}
+    <
+      NWCSettingsModal 
+  open={showSettingsModal} 
+  onOpenChange={setShowSettingsModal}
+      />
+      </>
   );
 }

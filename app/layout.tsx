@@ -2,6 +2,7 @@ import React from "react"
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { NostrProvider } from '@/lib/nostr-context'
+import { NWCProvider } from "@/lib/nwc-context";
 import './globals.css'
 
 const inter = Inter({
@@ -32,7 +33,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
         <NostrProvider>
-          {children}
+          <NWCProvider>
+            {children}
+          </NWCProvider>
         </NostrProvider>
       </body>
     </html>
