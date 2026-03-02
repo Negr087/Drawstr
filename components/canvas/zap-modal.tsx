@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useNostr } from "@/lib/nostr-context";
+import { useNWC } from "@/lib/nwc-context";
 import {
   Dialog,
   DialogContent,
@@ -50,11 +51,12 @@ export function ZapModal({
   const [amount, setAmount] = useState<number>(21);
   const [customAmount, setCustomAmount] = useState("");
   const [comment, setComment] = useState("");
-  const [step, setStep] = useState<"amount" | "invoice" | "paid">("amount");
+  const [step, setStep] = useState<"amount" | "invoice" | "success" | "paid">("amount");
   const [invoice, setInvoice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lnAddress, setLnAddress] = useState<string | null>(null);
+  const { nwcEnabled, sendPayment } = useNWC();
 
   // Reset when modal opens
   useEffect(() => {
@@ -168,6 +170,25 @@ export function ZapModal({
 
       setInvoice(invoiceData.pr);
       setStep("invoice");
+      if (nwcEnabled) {
+  console.log("💸 NWC enabled, attempting auto-payment...");
+  try {
+    const paymentResult = await sendPayment(invoiceData.pr);
+    if (paymentResult) {
+      console.log("✅ Payment successful via NWC!");
+      setStep("success");
+      setTimeout(() => {
+        onOpenChange(false);
+      }, 2000);
+    } else {
+      console.log("❌ NWC payment failed, showing invoice for manual payment");
+      // Si falla NWC, el usuario puede pagar manualmente
+    }
+  } catch (err) {
+    console.error("NWC payment error:", err);
+    // Si falla NWC, el usuario puede pagar manualmente
+  }
+}
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate invoice");
     } finally {
@@ -357,6 +378,18 @@ export function ZapModal({
             </Button>
           </div>
         )}
+
+        {step === "success" && (
+  <div className="text-center py-8">
+    <div className="mx-auto w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-4">
+      <Check className="h-8 w-8 text-green-500" />
+    </div>
+    <h3 className="text-lg font-medium mb-2">Payment Sent! ⚡</h3>
+    <p className="text-sm text-muted-foreground">
+      Your zap has been sent successfully
+    </p>
+  </div>
+)}
 
         {step === "paid" && (
           <div className="text-center py-6 space-y-3">
