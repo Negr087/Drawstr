@@ -65,31 +65,29 @@ export default function CanvasPage({ params }: PageProps) {
     if (author) {
       setCanvasAuthor({ pubkey: author });
       
-      // Fetch metadata
       if (pool) {
-        const sub = pool.sub(relays, [{
-          kinds: [0],
-          authors: [author],
-          limit: 1,
-        }]);
-        
-        sub.on('event', (event: any) => {
-          try {
-            const metadata = JSON.parse(event.content);
-            setCanvasAuthor({
-              pubkey: author,
-              name: metadata.name || metadata.display_name,
-              picture: metadata.picture,
-            });
-            sub.unsub();
-          } catch (err) {
-            console.error(err);
+        const sub = pool.subscribeMany(
+          relays,
+          [{ kinds: [0], authors: [author], limit: 1 }] as any,
+          {
+            onevent(event: any) {
+              try {
+                const metadata = JSON.parse(event.content);
+                setCanvasAuthor({
+                  pubkey: author,
+                  name: metadata.name || metadata.display_name,
+                  picture: metadata.picture,
+                });
+                sub.close();
+              } catch (err) {
+                console.error(err);
+              }
+            },
+            oneose() {
+              sub.close();
+            },
           }
-        });
-        
-        sub.on('eose', () => {
-          sub.unsub();
-        });
+        );
       }
     }
     
@@ -150,27 +148,30 @@ export default function CanvasPage({ params }: PageProps) {
             
             // Query events using v1 syntax
             const events: any[] = await new Promise((resolve) => {
-              const collected: any[] = [];
-              const sub = pool.sub(relays, [{
-                kinds: [NOSTR_KIND_CANVAS_ACTION],
-                "#canvas": [canvasId],
-                since: sinceTimestamp,
-              }]);
-              
-              sub.on('event', (event: any) => {
-                collected.push(event);
-              });
-              
-              sub.on('eose', () => {
-                sub.unsub();
-                resolve(collected);
-              });
-              
-              setTimeout(() => {
-                sub.unsub();
-                resolve(collected);
-              }, 5000);
-            });
+  const collected: any[] = [];
+  const sub = pool.subscribeMany(
+    relays,
+    [{
+      kinds: [NOSTR_KIND_CANVAS_ACTION],
+      "#canvas": [canvasId],
+      since: sinceTimestamp,
+    }] as any,
+    {
+      onevent(event: any) {
+        collected.push(event);
+      },
+      oneose() {
+        sub.close();
+        resolve(collected);
+      },
+    }
+  );
+
+  setTimeout(() => {
+    sub.close();
+    resolve(collected);
+  }, 5000);
+});
             
             console.log(`Found ${events.length} events since last save`);
             if (events.length > 0) {
