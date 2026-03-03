@@ -56,64 +56,69 @@ export default function CanvasPage({ params }: PageProps) {
 
   // Check URL params and fetch author info
   useEffect(() => {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  
-  // View-only si tiene param explícito O si estás viendo el canvas de otro
-  const explicitViewOnly = params.get("view") === "true";
-  const author = params.get("author");
-  
-  if (author) {
-    setCanvasAuthor({ pubkey: author });
-    // Fetch metadata...
-    if (pool) {
-      pool.querySync(relays, {
-        kinds: [0],
-        authors: [author],
-        limit: 1,
-      }).then((events) => {
-        if (events.length > 0) {
-          const metadata = JSON.parse(events[0].content);
-          setCanvasAuthor({
-            pubkey: author,
-            name: metadata.name || metadata.display_name,
-            picture: metadata.picture,
-          });
-        }
-      }).catch(console.error);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    
+    const explicitViewOnly = params.get("view") === "true";
+    const author = params.get("author");
+    
+    if (author) {
+      setCanvasAuthor({ pubkey: author });
+      
+      // Fetch metadata
+      if (pool) {
+        const sub = pool.sub(relays, [{
+          kinds: [0],
+          authors: [author],
+          limit: 1,
+        }]);
+        
+        sub.on('event', (event: any) => {
+          try {
+            const metadata = JSON.parse(event.content);
+            setCanvasAuthor({
+              pubkey: author,
+              name: metadata.name || metadata.display_name,
+              picture: metadata.picture,
+            });
+            sub.unsub();
+          } catch (err) {
+            console.error(err);
+          }
+        });
+        
+        sub.on('eose', () => {
+          sub.unsub();
+        });
+      }
     }
-  }
-  
-  setIsViewOnly(explicitViewOnly);
-}, [pool, relays]);
+    
+    setIsViewOnly(explicitViewOnly);
+  }, [pool, relays]);
 
-// AGREGAR un segundo useEffect que actualiza isViewOnly cuando se carga el user
-useEffect(() => {
-  if (typeof window === "undefined") return;
-  
-  const params = new URLSearchParams(window.location.search);
-  const explicitViewOnly = params.get("view") === "true";
-  
-  // View-only SOLO si el param ?view=true está presente
-  // O si no hay author Y no eres el dueño
-  if (explicitViewOnly) {
-    setIsViewOnly(true);
-  } else if (canvasAuthor?.pubkey && user && canvasAuthor.pubkey !== user.pubkey) {
-    // Estás viendo el canvas de otro pero SIN ?view=true → puedes editar
-    setIsViewOnly(false);
-  } else if (canvasAuthor?.pubkey && !user) {
-    // No estás logueado viendo el canvas de otro → view-only
-    setIsViewOnly(true);
-  } else {
-    setIsViewOnly(false);
-  }
-}, [canvasAuthor?.pubkey, user]);
+  // Update isViewOnly when user loads
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const explicitViewOnly = params.get("view") === "true";
+    
+    if (explicitViewOnly) {
+      setIsViewOnly(true);
+    } else if (canvasAuthor?.pubkey && user && canvasAuthor.pubkey !== user.pubkey) {
+      setIsViewOnly(false);
+    } else if (canvasAuthor?.pubkey && !user) {
+      setIsViewOnly(true);
+    } else {
+      setIsViewOnly(false);
+    }
+  }, [canvasAuthor?.pubkey, user]);
 
-useEffect(() => {
-  if (isViewOnly) {
-    useCanvasStore.getState().setActiveTool("hand");
-  }
-}, [isViewOnly]);
+  useEffect(() => {
+    if (isViewOnly) {
+      useCanvasStore.getState().setActiveTool("hand");
+    }
+  }, [isViewOnly]);
 
   // Initialize canvas
   useEffect(() => {
@@ -122,88 +127,102 @@ useEffect(() => {
   }, [canvasId, setCanvasId, setCanvasName]);
 
   // Auto-load canvas state
-useEffect(() => {
-  if (!canvasId) return;
-  
-  // Si hay author en URL, cargar su canvas (aunque no estés logueado)
-  // Si no hay author, cargar el tuyo (requiere login)
-  const authorToLoad = canvasAuthor?.pubkey ?? user?.pubkey;
-  if (!authorToLoad) return;
-
-  const autoLoad = async () => {
-  try {
-    console.log("Auto-loading canvas from author:", authorToLoad);
-    const data = await loadCanvasState(canvasId, authorToLoad);
+  useEffect(() => {
+    if (!canvasId) return;
     
-    if (data && data.elements) {
-      loadElements(data.elements);
-      if (data.canvasName) setCanvasName(data.canvasName);
-      console.log(`Loaded base canvas with ${data.elements.length} elements`);
-      
-      // AGREGAR: cargar eventos posteriores al timestamp del canvas
-     if (pool && data.timestamp) {
-  const sinceTimestamp = Math.floor(data.timestamp / 1000);
-  console.log("🔍 Searching for events - kind:", NOSTR_KIND_CANVAS_ACTION, "canvas:", canvasId, "since:", sinceTimestamp, "canvas timestamp:", data.timestamp, "current time:", Math.floor(Date.now() / 1000));
-  
-  const events = await pool.querySync(relays, {
-    kinds: [NOSTR_KIND_CANVAS_ACTION],
-    "#canvas": [canvasId],
-    since: sinceTimestamp,
-  });
-  
-  console.log(`Found ${events.length} events since last save`);
-  if (events.length > 0) {
-    console.log("First event kind:", events[0].kind, "content preview:", events[0].content.slice(0, 100));
-  }
-        
-        // Aplicar eventos en orden cronológico
-        events.sort((a, b) => a.created_at - b.created_at).forEach(event => {
-          try {
-            const eventData = JSON.parse(event.content);
-            const element = eventData.element;
-            
-            switch (eventData.action) {
-              case "add":
-                useCanvasStore.getState().addElement(element);
-                break;
-              case "update":
-                useCanvasStore.getState().updateElement(element.id, element);
-                break;
-              case "delete":
-                useCanvasStore.getState().deleteElement(element.id);
-                break;
-            }
-          } catch (err) {
-            console.error("Failed to apply event:", err);
-          }
-        });
-      }
-    } else {
-      console.log("No canvas data found");
-    }
-  } catch (error) {
-    console.error("Failed to auto-load canvas:", error);
-  }
-};
+    const authorToLoad = canvasAuthor?.pubkey ?? user?.pubkey;
+    if (!authorToLoad) return;
 
-  autoLoad();
-}, [canvasId, canvasAuthor?.pubkey, user?.pubkey, loadCanvasState, loadElements, setCanvasName]);
+    const autoLoad = async () => {
+      try {
+        console.log("Auto-loading canvas from author:", authorToLoad);
+        const data = await loadCanvasState(canvasId, authorToLoad);
+        
+        if (data && data.elements) {
+          loadElements(data.elements);
+          if (data.canvasName) setCanvasName(data.canvasName);
+          console.log(`Loaded base canvas with ${data.elements.length} elements`);
+          
+          // Load events after canvas timestamp
+          if (pool && data.timestamp) {
+            const sinceTimestamp = Math.floor(data.timestamp / 1000);
+            console.log("🔍 Searching for events - kind:", NOSTR_KIND_CANVAS_ACTION, "canvas:", canvasId, "since:", sinceTimestamp);
+            
+            // Query events using v1 syntax
+            const events: any[] = await new Promise((resolve) => {
+              const collected: any[] = [];
+              const sub = pool.sub(relays, [{
+                kinds: [NOSTR_KIND_CANVAS_ACTION],
+                "#canvas": [canvasId],
+                since: sinceTimestamp,
+              }]);
+              
+              sub.on('event', (event: any) => {
+                collected.push(event);
+              });
+              
+              sub.on('eose', () => {
+                sub.unsub();
+                resolve(collected);
+              });
+              
+              setTimeout(() => {
+                sub.unsub();
+                resolve(collected);
+              }, 5000);
+            });
+            
+            console.log(`Found ${events.length} events since last save`);
+            if (events.length > 0) {
+              console.log("First event kind:", events[0].kind, "content preview:", events[0].content.slice(0, 100));
+            }
+            
+            // Apply events in chronological order
+            events.sort((a: any, b: any) => a.created_at - b.created_at).forEach((event: any) => {
+              try {
+                const eventData = JSON.parse(event.content);
+                const element = eventData.element;
+                
+                switch (eventData.action) {
+                  case "add":
+                    useCanvasStore.getState().addElement(element);
+                    break;
+                  case "update":
+                    useCanvasStore.getState().updateElement(element.id, element);
+                    break;
+                  case "delete":
+                    useCanvasStore.getState().deleteElement(element.id);
+                    break;
+                }
+              } catch (err) {
+                console.error("Failed to apply event:", err);
+              }
+            });
+          }
+        } else {
+          console.log("No canvas data found");
+        }
+      } catch (error) {
+        console.error("Failed to auto-load canvas:", error);
+      }
+    };
+
+    autoLoad();
+  }, [canvasId, canvasAuthor?.pubkey, user?.pubkey, loadCanvasState, loadElements, setCanvasName, pool, relays]);
 
   // Subscribe to canvas events
   useEffect(() => {
-  // Suscribirse si estás logueado Y conectado
-  // Ya sea tu canvas o el de otro (para ver cambios en tiempo real)
-  if (!user || !isConnected || isSubscribed) return;
-  
-  console.log("Subscribing to canvas:", canvasId);
-  setIsSubscribed(true);
-  const unsubscribe = subscribeToCanvas(canvasId);
-  
-  return () => {
-    console.log("Unsubscribing from canvas:", canvasId);
-    unsubscribe();
-  };
-}, [user, isConnected, canvasId, isSubscribed, subscribeToCanvas]);
+    if (!user || !isConnected || isSubscribed) return;
+    
+    console.log("Subscribing to canvas:", canvasId);
+    setIsSubscribed(true);
+    const unsubscribe = subscribeToCanvas(canvasId);
+    
+    return () => {
+      console.log("Unsubscribing from canvas:", canvasId);
+      unsubscribe();
+    };
+  }, [user, isConnected, canvasId, isSubscribed, subscribeToCanvas]);
 
   useEffect(() => {
     if (!user) setIsSubscribed(false);
@@ -214,7 +233,6 @@ useEffect(() => {
     setShowClearDialog(false);
   }, [clearCanvas]);
 
-  // Show floating zap button when viewing someone else's canvas
   const showZapButton = canvasAuthor && canvasAuthor.pubkey !== user?.pubkey;
 
   return (
@@ -241,7 +259,7 @@ useEffect(() => {
       {/* Layer Controls */}
       {!isViewOnly && <LayerControls />}
 
-      {/* Floating Zap Button — visible when viewing someone else's canvas */}
+      {/* Floating Zap Button */}
       {showZapButton && (
         <div className="absolute bottom-8 right-4 flex flex-col items-center gap-1 z-50">
           <button
@@ -249,7 +267,6 @@ useEffect(() => {
             className="group relative w-14 h-14 rounded-full bg-yellow-500 hover:bg-yellow-400 shadow-lg shadow-yellow-500/30 hover:shadow-yellow-400/50 transition-all duration-200 hover:scale-110 flex items-center justify-center"
           >
             <Zap className="w-6 h-6 text-black fill-black" />
-            {/* Pulse ring */}
             <span className="absolute inset-0 rounded-full bg-yellow-400 animate-ping opacity-20" />
           </button>
           <span className="text-[10px] text-yellow-400/80 font-medium">Zap ⚡</span>
