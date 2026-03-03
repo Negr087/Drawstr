@@ -31,6 +31,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+      </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
         <NostrProvider>
           <NWCProvider>
@@ -39,5 +41,5 @@ export default function RootLayout({
         </NostrProvider>
       </body>
     </html>
-  )
+  );
 }

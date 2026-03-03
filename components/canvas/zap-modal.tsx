@@ -72,25 +72,47 @@ export function ZapModal({
     }
   }, [open, recipientPubkey]);
 
-  // Fetch lightning address from recipient's nostr profile
-  const fetchLightningAddress = async () => {
-    if (!pool) return;
-    try {
-      const events = await pool.querySync(relays, {
-        kinds: [0],
-        authors: [recipientPubkey],
-        limit: 1,
-      });
+  // Al principio del archivo, después de los imports
+async function querySyncHelper(pool: any, relays: string[], filters: any[]): Promise<any[]> {
+  return new Promise((resolve) => {
+    const collected: any[] = [];
+    const sub = pool.sub(relays, filters);
+    
+    sub.on('event', (event: any) => {
+      collected.push(event);
+    });
+    
+    sub.on('eose', () => {
+      sub.unsub();
+      resolve(collected);
+    });
+    
+    setTimeout(() => {
+      sub.unsub();
+      resolve(collected);
+    }, 3000);
+  });
+}
 
-      if (events.length > 0) {
-        const metadata = JSON.parse(events[0].content);
-        const lnurl = metadata.lud16 || metadata.lud06;
-        if (lnurl) setLnAddress(lnurl);
-      }
-    } catch (err) {
-      console.error("Failed to fetch lightning address:", err);
+// Y luego en fetchLightningAddress:
+const fetchLightningAddress = async () => {
+  if (!pool) return;
+  try {
+    const events = await querySyncHelper(pool, relays, [{
+      kinds: [0],
+      authors: [recipientPubkey],
+      limit: 1,
+    }]);
+    
+    if (events.length > 0) {
+      const metadata = JSON.parse(events[0].content);
+      const lnurl = metadata.lud16 || metadata.lud06;
+      if (lnurl) setLnAddress(lnurl);
     }
-  };
+  } catch (err) {
+    console.error("Failed to fetch lightning address:", err);
+  }
+};
 
   // Resolve LNURL / lightning address to callback URL
   const resolveLnurl = async (lnurl: string): Promise<LnurlData | null> => {

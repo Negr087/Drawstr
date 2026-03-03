@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Chrome, AlertCircle, Smartphone, Copy, Check, Eye } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useNostrConnect } from "@/lib/use-nostr-connect";
 
 interface LoginModalProps {
   open: boolean;
@@ -29,12 +30,32 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   const {
     loginWithExtension,
     loginWithNpub,
-    loginWithNostrConnect,
-    nostrConnectUri,
+    loginWithRemoteSigner,
     isLoading,
     error,
     user,
   } = useNostr();
+
+  const { relays } = useNostr();
+  const nip46 = useNostrConnect(relays);
+
+  // Detectar conexión NIP-46 exitosa
+useEffect(() => {
+  if (nip46.connected && nip46.remotePubkey) {
+    console.log("🎉 NIP-46 connected! Remote pubkey:", nip46.remotePubkey);
+    
+    // Llamar a loginWithRemoteSigner
+    loginWithRemoteSigner(nip46.remotePubkey)
+      .then(() => {
+        console.log("✅ Login successful!");
+        onOpenChange(false);
+        nip46.reset(); // Limpiar el estado NIP-46
+      })
+      .catch((err) => {
+        console.error("❌ Login failed:", err);
+      });
+  }
+}, [nip46.connected, nip46.remotePubkey, onOpenChange, nip46]);
 
   // Close modal when user successfully logs in
   useEffect(() => {
@@ -65,22 +86,6 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
       await loginWithNpub(npubKey.trim());
     } catch (err) {
       console.error("Login failed:", err);
-    }
-  };
-
-  const handleNostrConnectLogin = async () => {
-    try {
-      await loginWithNostrConnect();
-    } catch (err) {
-      console.error("Nostr Connect failed:", err);
-    }
-  };
-
-  const handleCopyUri = () => {
-    if (nostrConnectUri) {
-      navigator.clipboard.writeText(nostrConnectUri);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -180,66 +185,92 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
             </div>
           </TabsContent>
 
-          {/* Mobile tab - unchanged */}
-          <TabsContent value="connect" className="mt-4 space-y-4">
-            <div className="text-sm text-muted-foreground">
-              Scan the QR code with your Nostr app (Amber, Alby Go, Nos, etc.) or copy
-              the connection string.
-            </div>
+          {/* Mobile tab - NIP-46 */}
+<TabsContent value="connect" className="mt-4 space-y-4">
+  <div className="text-sm text-muted-foreground">
+    Scan the QR code with your Nostr app (Primal, Amber, nsec.app, etc.) to connect remotely.
+  </div>
 
-            {!nostrConnectUri ? (
-              <Button
-                className="w-full gap-2"
-                size="lg"
-                onClick={handleNostrConnectLogin}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Smartphone className="h-4 w-4" />
-                )}
-                Generate Connection Code
-              </Button>
+  {!nip46.uri ? (
+    <Button
+      className="w-full gap-2"
+      size="lg"
+      onClick={() => nip46.generateConnectionUri()}
+      disabled={isLoading}
+    >
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Smartphone className="h-4 w-4" />
+      )}
+      Generate QR Code
+    </Button>
+  ) : (
+    <div className="space-y-4">
+      <div className="flex justify-center p-4 bg-white rounded-lg">
+        <QRCodeSVG value={nip46.uri} size={200} level="M" />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground">
+          Or copy the connection string:
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            value={nip46.uri}
+            readOnly
+            className="font-mono text-xs"
+          />
+          <Button 
+            variant="outline" 
+            size="icon" 
+            onClick={() => {
+              navigator.clipboard.writeText(nip46.uri!);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-green-500" />
             ) : (
-              <div className="space-y-4">
-                <div className="flex justify-center p-4 bg-white rounded-lg">
-                  <QRCodeSVG value={nostrConnectUri} size={200} level="M" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Or copy the connection string:
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={nostrConnectUri}
-                      readOnly
-                      className="font-mono text-xs"
-                    />
-                    <Button variant="outline" size="icon" onClick={handleCopyUri}>
-                      {copied ? (
-                        <Check className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                <Alert>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <AlertDescription className="text-xs">
-                    Waiting for approval from your Nostr app...
-                  </AlertDescription>
-                </Alert>
-              </div>
+              <Copy className="h-4 w-4" />
             )}
+          </Button>
+        </div>
+      </div>
 
-            <div className="text-xs text-muted-foreground text-center">
-              Works with Amber (Android), Alby Go, Nos, and other NIP-46 compatible apps
-            </div>
-          </TabsContent>
+      {nip46.isWaiting && !nip46.connected && (
+        <Alert>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <AlertDescription className="text-xs">
+            Waiting for approval from your Nostr app...
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {nip46.connected && (
+        <Alert className="bg-green-500/10 border-green-500/20">
+          <Check className="h-4 w-4 text-green-500" />
+          <AlertDescription className="text-xs text-green-500">
+            Connected successfully! ✅
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={() => nip46.reset()}
+      >
+        Generate New Code
+      </Button>
+    </div>
+  )}
+
+  <div className="text-xs text-muted-foreground text-center">
+    Works with Primal, Amber (Android), nsec.app, and other NIP-46 compatible apps
+  </div>
+</TabsContent>
 
           {/* npub tab - new read-only login */}
           <TabsContent value="npub" className="mt-4 space-y-4">

@@ -11,14 +11,14 @@ import {
 import {
   SimplePool,
   nip19,
-  finalizeEvent,
-  type Event,
-  type UnsignedEvent
+  getEventHash,
+  signEvent as signEventNostr,
+  generatePrivateKey,
+  getPublicKey,
 } from "nostr-tools";
 import type {
   NostrUser,
   CanvasElement,
-  CursorPosition,
 } from "./types";
 import {
   NOSTR_KIND_CANVAS_ACTION,
@@ -26,7 +26,42 @@ import {
   NOSTR_KIND_CANVAS_STATE,
 } from "./types";
 import { useCanvasStore } from "./canvas-store";
-import { createNostrConnectClient, generateBunkerUri, listenForConnection, hexToBytes as hexToBytesConnect } from "./nostr-connect";
+
+// Tipos para eventos sin firmar (v1 no lo exporta)
+interface UnsignedEvent {
+  kind: number;
+  created_at: number;
+  tags: string[][];
+  content: string;
+  pubkey: string;
+}
+
+interface Event extends UnsignedEvent {
+  id: string;
+  sig: string;
+}
+
+// Helper para query sync en v1
+async function querySyncHelper(pool: SimplePool, relays: string[], filters: any[]): Promise<any[]> {
+  return new Promise((resolve) => {
+    const collected: any[] = [];
+    const sub = pool.sub(relays, filters);
+    
+    sub.on('event', (event: any) => {
+      collected.push(event);
+    });
+    
+    sub.on('eose', () => {
+      sub.unsub();
+      resolve(collected);
+    });
+    
+    setTimeout(() => {
+      sub.unsub();
+      resolve(collected);
+    }, 5000);
+  });
+}
 
 const DEFAULT_RELAYS = [
   "wss://relay.damus.io",
@@ -54,6 +89,7 @@ interface NostrContextType {
   error: string | null;
   loginWithExtension: () => Promise<void>;
   loginWithNpub: (npub: string) => Promise<void>;
+  loginWithRemoteSigner: (remotePubkey: string) => Promise<void>;
   logout: () => void;
   publishCanvasAction: (
     action: "add" | "update" | "delete",
@@ -70,8 +106,6 @@ interface NostrContextType {
   saveCanvasState: (canvasId: string, canvasName: string) => Promise<boolean>;
   loadCanvasState: (canvasId: string, authorPubkey?: string) => Promise<any>;
   listUserCanvases: () => Promise<any[]>;
-  loginWithNostrConnect: () => Promise<void>;
-  nostrConnectUri: string | null;
 }
 
 const NostrContext = createContext<NostrContextType | null>(null);
@@ -83,10 +117,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [privateKey, setPrivateKey] = useState<Uint8Array | null>(null);
-  const [nostrConnectUri, setNostrConnectUri] = useState<string | null>(null);
-  const [nostrConnectClient, setNostrConnectClient] = useState<any>(null);
-  const [nostrConnectCleanup, setNostrConnectCleanup] = useState<(() => void) | null>(null);
+  const [privateKey, setPrivateKey] = useState<string | null>(null);
 
   const { addElement, updateElement, deleteElement, updateCursor, setCurrentUser } =
     useCanvasStore();
@@ -94,11 +125,12 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const fetchUserMetadata = useCallback(async (pubkey: string) => {
     if (!pool) return null;
     try {
-      const events = await pool.querySync(relays, {
+      const events = await querySyncHelper(pool, relays, [{
         kinds: [0],
         authors: [pubkey],
         limit: 1,
-      });
+      }]);
+      
       if (events.length > 0) {
         const metadata = JSON.parse(events[0].content);
         return {
@@ -116,12 +148,11 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const simplePool = new SimplePool();
     setPool(simplePool);
-    const testConnections = async () => {
-      try { setIsConnected(true); }
-      catch (err) { console.warn("Some relays failed:", err); setIsConnected(true); }
+    setIsConnected(true);
+    
+    return () => {
+      simplePool.close(relays);
     };
-    testConnections();
-    return () => { simplePool.close(relays); };
   }, [relays]);
 
   useEffect(() => {
@@ -135,20 +166,23 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         console.error('Failed to restore session:', err);
       }
     }
-  }, []);
+  }, [setCurrentUser]);
 
-  // Sign event — returns null for readOnly users
   const signEvent = useCallback(
-    async (unsignedEvent: UnsignedEvent): Promise<Event | null> => {
+    async (unsignedEvent: any): Promise<Event | null> => {
       try {
         if (user?.readOnly) return null;
+        
         if (window.nostr && !privateKey) {
           return await window.nostr.signEvent(unsignedEvent);
         } else if (privateKey) {
-          return finalizeEvent(unsignedEvent, privateKey) as Event;
+          unsignedEvent.id = getEventHash(unsignedEvent);
+          unsignedEvent.sig = signEventNostr(unsignedEvent, privateKey);
+          return unsignedEvent as Event;
         }
         return null;
-      } catch {
+      } catch (err) {
+        console.error("Failed to sign event:", err);
         return null;
       }
     },
@@ -160,16 +194,19 @@ export function NostrProvider({ children }: { children: ReactNode }) {
       if (!pool) return null;
       try {
         const filter: any = {
-  kinds: [NOSTR_KIND_CANVAS_STATE],
-  "#d": [canvasId],
-  limit: 10,
-};
+          kinds: [NOSTR_KIND_CANVAS_STATE],
+          "#d": [canvasId],
+          limit: 10,
+        };
+        
         const resolvedPubkey = authorPubkey ?? user?.pubkey;
         if (resolvedPubkey) filter.authors = [resolvedPubkey];
-        const events = await pool.querySync(relays, filter);
-        events.sort((a, b) => b.created_at - a.created_at);
-if (events.length > 0) {
-  const canvasData = JSON.parse(events[0].content);
+        
+        const events = await querySyncHelper(pool, relays, [filter]);
+        events.sort((a: any, b: any) => b.created_at - a.created_at);
+        
+        if (events.length > 0) {
+          const canvasData = JSON.parse(events[0].content);
           console.log(`Canvas loaded: ${canvasData.canvasName} with ${canvasData.elements.length} elements`);
           return canvasData;
         }
@@ -182,51 +219,46 @@ if (events.length > 0) {
     [pool, user, relays]
   );
 
-  // Login with NIP-07 browser extension
   const loginWithExtension = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    
     try {
       if (typeof window === "undefined" || !window.nostr) {
         throw new Error("No Nostr extension found. Please install Alby or nos2x.");
       }
+      
       const pubkey = await window.nostr.getPublicKey();
       const npub = nip19.npubEncode(pubkey);
       const metadata = await fetchUserMetadata(pubkey);
+      
       const nostrUser: NostrUser = {
-        pubkey, npub,
+        pubkey,
+        npub,
         name: metadata?.name,
         picture: metadata?.picture,
         readOnly: false,
       };
+      
       setUser(nostrUser);
       setCurrentUser(nostrUser);
       setPrivateKey(null);
       localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-      setTimeout(async () => {
-        const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
-        if (lastCanvas) {
-          const data = await loadCanvasState(lastCanvas, nostrUser.pubkey);
-          if (data?.elements) {
-            useCanvasStore.getState().loadElements(data.elements);
-            console.log("Auto-loaded last canvas after login");
-          }
-        }
-      }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to login");
     } finally {
       setIsLoading(false);
     }
-  }, [setCurrentUser, fetchUserMetadata, loadCanvasState]);
+  }, [setCurrentUser, fetchUserMetadata]);
 
-  // Login with npub — read-only mode, can draw locally but cannot sign
   const loginWithNpub = useCallback(
     async (npub: string) => {
       setIsLoading(true);
       setError(null);
+      
       try {
         let pubkey: string;
+        
         if (npub.startsWith("npub")) {
           const decoded = nip19.decode(npub);
           if (decoded.type !== "npub") throw new Error("Invalid npub key");
@@ -234,10 +266,12 @@ if (events.length > 0) {
         } else if (/^[0-9a-fA-F]{64}$/.test(npub)) {
           pubkey = npub;
         } else {
-          throw new Error("Invalid public key format. Use npub1... or a 64-char hex.");
+          throw new Error("Invalid public key format");
         }
+        
         const npubEncoded = nip19.npubEncode(pubkey);
         const metadata = await fetchUserMetadata(pubkey);
+        
         const nostrUser: NostrUser = {
           pubkey,
           npub: npubEncoded,
@@ -245,151 +279,91 @@ if (events.length > 0) {
           picture: metadata?.picture,
           readOnly: true,
         };
+        
         setUser(nostrUser);
         setCurrentUser(nostrUser);
         setPrivateKey(null);
         localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-        setTimeout(async () => {
-          const lastCanvas = localStorage.getItem(`lastCanvas:${nostrUser.pubkey}`);
-          if (lastCanvas) {
-            const data = await loadCanvasState(lastCanvas, nostrUser.pubkey);
-            if (data?.elements) {
-              useCanvasStore.getState().loadElements(data.elements);
-              console.log("Auto-loaded last canvas after npub login");
-            }
-          }
-        }, 500);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Invalid public key");
       } finally {
         setIsLoading(false);
       }
     },
-    [setCurrentUser, fetchUserMetadata, loadCanvasState]
+    [setCurrentUser, fetchUserMetadata]
   );
 
-  // Login with Nostr Connect (NIP-46)
-  const loginWithNostrConnect = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const loginWithRemoteSigner = useCallback(async (remotePubkey: string) => {
     try {
-      if (nostrConnectCleanup) nostrConnectCleanup();
-
-      const client = createNostrConnectClient({
-        relay: "wss://relay.damus.io",
-        onConnect: async (remotePubkey) => {
-          console.log("Connected with pubkey:", remotePubkey);
-          const metadata = await fetchUserMetadata(remotePubkey);
-          const npub = nip19.npubEncode(remotePubkey);
-          const nostrUser: NostrUser = {
-            pubkey: remotePubkey, npub,
-            name: metadata?.name,
-            picture: metadata?.picture,
-            readOnly: false,
-          };
-          setUser(nostrUser);
-          localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-          setCurrentUser(nostrUser);
-          setIsLoading(false);
-          setNostrConnectUri(null);
-          if (nostrConnectCleanup) {
-            nostrConnectCleanup();
-            setNostrConnectCleanup(null);
-          }
-        },
-        onError: (errorMsg) => {
-          setError(errorMsg);
-          setIsLoading(false);
-        },
-      });
-
-      const uri = generateBunkerUri(client);
-      setNostrConnectUri(uri);
-      setNostrConnectClient(client);
-
-      const secretKey = hexToBytesConnect(client.secret);
-
-      const subs = relays.map(relay =>
-        client.pool.subscribeMany(
-          [relay],
-          [{ kinds: [24133], "#p": [client.pubkey], since: Math.floor(Date.now() / 1000) - 60 }] as any,
-          {
-            async onevent(event: any) {
-              console.log(`Event from ${relay}:`, event);
-              try {
-                const remotePubkey = event.pubkey;
-                const metadata = await fetchUserMetadata(remotePubkey);
-                const npub = nip19.npubEncode(remotePubkey);
-                const nostrUser: NostrUser = {
-                  pubkey: remotePubkey, npub,
-                  name: metadata?.name,
-                  picture: metadata?.picture,
-                  readOnly: false,
-                };
-                setUser(nostrUser);
-                localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
-                setCurrentUser(nostrUser);
-                setIsLoading(false);
-                setNostrConnectUri(null);
-              } catch (err) {
-                console.error("Failed to connect:", err);
-              }
-            }
-          }
-        )
-      );
-
-      const cleanup = await listenForConnection(client, secretKey, relays);
-      setNostrConnectCleanup(() => cleanup);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start connection");
-      setIsLoading(false);
-    }
-  }, [relays, fetchUserMetadata, setCurrentUser, nostrConnectCleanup]);
-
-  // Publish canvas action — skips for readOnly users
-  const publishCanvasAction = useCallback(
-  async (action: "add" | "update" | "delete", element: CanvasElement, canvasId: string) => {
-    // Bloquear solo si NO hay user, o si es readOnly (npub login)
-    if (!pool || !user || user.readOnly) {
-      console.log("publishCanvasAction blocked - readOnly or no user");
-      return;
-    }
-    if (element.type === 'image') {
-      console.log("🖼️ Publishing image element:", {
-        id: element.id,
-        hasDataUrl: !!(element as any).dataUrl,
-        dataUrlPreview: ((element as any).dataUrl || 'MISSING').slice(0, 100)
-      });
-    }
-    
-    try {
-      const unsignedEvent: UnsignedEvent = {
-        kind: NOSTR_KIND_CANVAS_ACTION,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [["d", canvasId], ["canvas", canvasId], ["author", user.pubkey]],
-        content: JSON.stringify({ action, element, timestamp: Date.now() }),
-        pubkey: user.pubkey,
-      };
-      console.log("📤 Publishing CANVAS ACTION - kind:", NOSTR_KIND_CANVAS_ACTION, "action:", action, "element id:", element.id);
-      const signedEvent = await signEvent(unsignedEvent);
-      if (signedEvent) {
-        await Promise.allSettled(pool.publish(relays, signedEvent));
-        console.log("Published canvas action:", action);
-      } else {
-        console.warn("Failed to sign event - no signing method available");
+      console.log("🔐 Logging in with remote signer:", remotePubkey);
+      
+      if (!pool) {
+        throw new Error("Pool not initialized");
       }
-    } catch (err) {
-      console.warn("Failed to publish canvas action:", err);
-    }
-  },
-  [pool, user, relays, signEvent]
-);
+      
+      const events = await querySyncHelper(pool, relays, [{
+        kinds: [0],
+        authors: [remotePubkey],
+        limit: 1,
+      }]);
 
-  // Publish cursor position — skips for readOnly users
+      let metadata: any = {};
+      if (events.length > 0) {
+        metadata = JSON.parse(events[0].content);
+      }
+
+      const npub = nip19.npubEncode(remotePubkey);
+
+      const nostrUser: NostrUser = {
+        pubkey: remotePubkey,
+        npub,
+        name: metadata.name || metadata.display_name,
+        picture: metadata.picture,
+        readOnly: false,
+      };
+
+      setUser(nostrUser);
+      setCurrentUser(nostrUser);
+      localStorage.setItem('nostr_user', JSON.stringify(nostrUser));
+      
+      console.log("✅ Logged in via NIP-46");
+    } catch (error) {
+      console.error("Failed to login with remote signer:", error);
+      setError("Failed to login with remote signer");
+      throw error;
+    }
+  }, [pool, relays, setCurrentUser]);
+
+  const publishCanvasAction = useCallback(
+    async (action: "add" | "update" | "delete", element: CanvasElement, canvasId: string) => {
+      if (!pool || !user || user.readOnly) {
+        return;
+      }
+      
+      try {
+        const unsignedEvent: UnsignedEvent = {
+          kind: NOSTR_KIND_CANVAS_ACTION,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [["d", canvasId], ["canvas", canvasId], ["author", user.pubkey]],
+          content: JSON.stringify({ action, element, timestamp: Date.now() }),
+          pubkey: user.pubkey,
+        };
+        
+        const signedEvent = await signEvent(unsignedEvent);
+        if (signedEvent) {
+          await Promise.allSettled(pool.publish(relays, signedEvent));
+        }
+      } catch (err) {
+        console.warn("Failed to publish canvas action:", err);
+      }
+    },
+    [pool, user, relays, signEvent]
+  );
+
   const publishCursorPosition = useCallback(
     async (x: number, y: number, canvasId: string) => {
       if (!pool || !user || user.readOnly) return;
+      
       try {
         const unsignedEvent: UnsignedEvent = {
           kind: NOSTR_KIND_CURSOR_POSITION,
@@ -398,71 +372,97 @@ if (events.length > 0) {
           content: JSON.stringify({ x, y, canvasId, timestamp: Date.now() }),
           pubkey: user.pubkey,
         };
+        
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) await Promise.allSettled(pool.publish(relays, signedEvent));
-      } catch (err) { /* silent */ }
+      } catch (err) {
+        // Silent
+      }
     },
     [pool, user, relays, signEvent]
   );
 
   const subscribeToCanvas = useCallback(
     (canvasId: string) => {
-      if (!pool || !user) return () => { };
+      if (!pool || !user) return () => {};
 
-      const actionSub = pool.subscribeMany(
-        relays,
-        [{ kinds: [NOSTR_KIND_CANVAS_ACTION], "#canvas": [canvasId] }] as any,
-        {
-          onevent(event) {
-            console.log("📨 Received canvas event from:", event.pubkey.slice(0, 8), "action:", JSON.parse(event.content).action);
-            try {
-              const data = JSON.parse(event.content);
-              const element = data.element as CanvasElement;
-              if (event.pubkey === user.pubkey) return;
-              console.log("✅ Processing event:", data.action, "element:", element.id);
-              switch (data.action) {
-                case "add": addElement(element); break;
-                case "update": updateElement(element.id, element); break;
-                case "delete": deleteElement(element.id); break;
-              }
-            } catch { }
-          },
-          oneose() { }
+      const actionSub = pool.sub(relays, [{
+        kinds: [NOSTR_KIND_CANVAS_ACTION],
+        "#canvas": [canvasId],
+      }]);
+
+      actionSub.on('event', (event: any) => {
+        try {
+          const data = JSON.parse(event.content);
+          const element = data.element as CanvasElement;
+          if (event.pubkey === user.pubkey) return;
+          
+          switch (data.action) {
+            case "add":
+              addElement(element);
+              break;
+            case "update":
+              updateElement(element.id, element);
+              break;
+            case "delete":
+              deleteElement(element.id);
+              break;
+          }
+        } catch (err) {
+          console.error("Failed to process canvas event:", err);
         }
-      );
+      });
 
-      const cursorSub = pool.subscribeMany(
-        relays,
-        [{ kinds: [NOSTR_KIND_CURSOR_POSITION], "#canvas": [canvasId], since: Math.floor(Date.now() / 1000) - 60 }] as any,
-        {
-          onevent(event) {
-            try {
-              if (event.pubkey === user.pubkey) return;
-              const data = JSON.parse(event.content);
-              const colorIndex = parseInt(event.pubkey.slice(-2), 16) % CURSOR_COLORS.length;
-              updateCursor({ pubkey: event.pubkey, x: data.x, y: data.y, color: CURSOR_COLORS[colorIndex], timestamp: data.timestamp });
-            } catch { }
-          },
-          oneose() { }
+      const cursorSub = pool.sub(relays, [{
+        kinds: [NOSTR_KIND_CURSOR_POSITION],
+        "#canvas": [canvasId],
+        since: Math.floor(Date.now() / 1000) - 60,
+      }]);
+
+      cursorSub.on('event', (event: any) => {
+        try {
+          if (event.pubkey === user.pubkey) return;
+          const data = JSON.parse(event.content);
+          const colorIndex = parseInt(event.pubkey.slice(-2), 16) % CURSOR_COLORS.length;
+          updateCursor({
+            pubkey: event.pubkey,
+            x: data.x,
+            y: data.y,
+            color: CURSOR_COLORS[colorIndex],
+            timestamp: data.timestamp,
+          });
+        } catch (err) {
+          console.error("Failed to process cursor event:", err);
         }
-      );
+      });
 
-      return () => { actionSub.close(); cursorSub.close(); };
+      return () => {
+        actionSub.unsub();
+        cursorSub.unsub();
+      };
     },
     [pool, relays, user, addElement, updateElement, deleteElement, updateCursor]
   );
 
-  // Publish note — blocked for readOnly users
   const publishNote = useCallback(
     async (content: string, imageUrl?: string): Promise<boolean> => {
       if (!pool || !user || user.readOnly) return false;
+      
       try {
-        const tags: string[][] = [["client", "NostrDraw"], ["t", "nostrdraw"], ["t", "art"]];
+        const tags: string[][] = [
+          ["client", "NostrDraw"],
+          ["t", "nostrdraw"],
+          ["t", "art"],
+        ];
+        
         if (imageUrl) {
           tags.push(["image", imageUrl]);
-          tags.push(["imeta", `url ${imageUrl}`, "m image/png", "blurhash LEHV6nWB2yk8pyo0adR*.7kCMdnj", "dim 1024x768"]);
-          if (!content.includes(imageUrl)) content = `${content}\n\n${imageUrl}`;
+          tags.push(["imeta", `url ${imageUrl}`, "m image/png"]);
+          if (!content.includes(imageUrl)) {
+            content = `${content}\n\n${imageUrl}`;
+          }
         }
+        
         const unsignedEvent: UnsignedEvent = {
           kind: 1,
           created_at: Math.floor(Date.now() / 1000),
@@ -470,6 +470,7 @@ if (events.length > 0) {
           content,
           pubkey: user.pubkey,
         };
+        
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) {
           const results = await Promise.allSettled(pool.publish(relays, signedEvent));
@@ -484,28 +485,43 @@ if (events.length > 0) {
     [pool, user, relays, signEvent]
   );
 
-  // Save canvas state — blocked for readOnly users
   const saveCanvasState = useCallback(
-  async (canvasId: string, canvasName: string): Promise<boolean> => {
-    if (!pool || !user || user.readOnly) return false;
-    try {
-      const elementsArray = Array.from(useCanvasStore.getState().elements.values())
-        .filter(el => !el.isDeleted)
-        const canvasData = { version: "1.0", canvasId, canvasName, elements: elementsArray, timestamp: Date.now() };
+    async (canvasId: string, canvasName: string): Promise<boolean> => {
+      if (!pool || !user || user.readOnly) return false;
+      
+      try {
+        const elementsArray = Array.from(useCanvasStore.getState().elements.values())
+          .filter(el => !el.isDeleted);
+        
+        const canvasData = {
+          version: "1.0",
+          canvasId,
+          canvasName,
+          elements: elementsArray,
+          timestamp: Date.now(),
+        };
+        
         const unsignedEvent: UnsignedEvent = {
           kind: NOSTR_KIND_CANVAS_STATE,
           created_at: Math.floor(Date.now() / 1000),
-          tags: [["d", canvasId], ["title", canvasName], ["client", "NostrDraw"]],
+          tags: [
+            ["d", canvasId],
+            ["title", canvasName],
+            ["client", "NostrDraw"],
+          ],
           content: JSON.stringify(canvasData),
           pubkey: user.pubkey,
         };
+        
         const signedEvent = await signEvent(unsignedEvent);
         if (signedEvent) {
           const results = await Promise.allSettled(pool.publish(relays, signedEvent));
           const successCount = results.filter(r => r.status === 'fulfilled').length;
-          console.log(`Published canvas action to ${successCount}/${relays.length} relays`);
-          console.log(`Canvas saved to ${successCount} relays`);
-          if (successCount > 0) localStorage.setItem(`lastCanvas:${user.pubkey}`, canvasId);
+          console.log(`Canvas saved to ${successCount}/${relays.length} relays`);
+          
+          if (successCount > 0) {
+            localStorage.setItem(`lastCanvas:${user.pubkey}`, canvasId);
+          }
           return successCount > 0;
         }
         return false;
@@ -520,28 +536,37 @@ if (events.length > 0) {
   const logout = useCallback(async () => {
     const currentCanvasId = useCanvasStore.getState().canvasId;
     const currentCanvasName = useCanvasStore.getState().canvasName;
+    
     if (user && !user.readOnly && currentCanvasId) {
-      console.log("Auto-saving before logout...");
       await saveCanvasState(currentCanvasId, currentCanvasName);
     }
+    
     setUser(null);
     setCurrentUser(null);
     setPrivateKey(null);
     localStorage.removeItem('nostr_user');
-    if (nostrConnectCleanup) { nostrConnectCleanup(); setNostrConnectCleanup(null); }
-    setNostrConnectUri(null);
-    setNostrConnectClient(null);
-  }, [setCurrentUser, nostrConnectCleanup, user, saveCanvasState]);
+  }, [setCurrentUser, user, saveCanvasState]);
 
   const listUserCanvases = useCallback(
     async () => {
       if (!pool || !user) return [];
+      
       try {
-        const events = await pool.querySync(relays, { kinds: [NOSTR_KIND_CANVAS_STATE], authors: [user.pubkey] });
-        return events.map(event => {
+        const events = await querySyncHelper(pool, relays, [{
+          kinds: [NOSTR_KIND_CANVAS_STATE],
+          authors: [user.pubkey],
+        }]);
+        
+        return events.map((event: any) => {
           const data = JSON.parse(event.content);
-          return { canvasId: data.canvasId, canvasName: data.canvasName, timestamp: data.timestamp, elementCount: data.elements.length, event };
-        }).sort((a, b) => b.timestamp - a.timestamp);
+          return {
+            canvasId: data.canvasId,
+            canvasName: data.canvasName,
+            timestamp: data.timestamp,
+            elementCount: data.elements.length,
+            event,
+          };
+        }).sort((a: any, b: any) => b.timestamp - a.timestamp);
       } catch (err) {
         console.error("Failed to list canvases:", err);
         return [];
@@ -553,11 +578,23 @@ if (events.length > 0) {
   return (
     <NostrContext.Provider
       value={{
-        pool, relays, user, isConnected, isLoading, error,
-        loginWithExtension, loginWithNpub, logout,
-        publishCanvasAction, publishCursorPosition, subscribeToCanvas,
-        publishNote, saveCanvasState, loadCanvasState, listUserCanvases,
-        loginWithNostrConnect, nostrConnectUri,
+        pool,
+        relays,
+        user,
+        isConnected,
+        isLoading,
+        error,
+        loginWithExtension,
+        loginWithNpub,
+        loginWithRemoteSigner,
+        logout,
+        publishCanvasAction,
+        publishCursorPosition,
+        subscribeToCanvas,
+        publishNote,
+        saveCanvasState,
+        loadCanvasState,
+        listUserCanvases,
       }}
     >
       {children}
@@ -576,11 +613,6 @@ declare global {
     nostr?: {
       getPublicKey: () => Promise<string>;
       signEvent: (event: UnsignedEvent) => Promise<Event>;
-      getRelays?: () => Promise<Record<string, { read: boolean; write: boolean }>>;
-      nip04?: {
-        encrypt: (pubkey: string, plaintext: string) => Promise<string>;
-        decrypt: (pubkey: string, ciphertext: string) => Promise<string>;
-      };
     };
   }
 }
