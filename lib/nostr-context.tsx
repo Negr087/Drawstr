@@ -256,23 +256,14 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const loginWithRemoteSigner = useCallback(
     async (remotePubkey: string) => {
       try {
-        if (!pool) throw new Error("Pool not initialized");
-
-        const events = await pool.querySync(relays, {
-          kinds: [0],
-          authors: [remotePubkey],
-          limit: 1,
-        });
-
-        let metadata: any = {};
-        if (events.length > 0) metadata = JSON.parse(events[0].content);
-
         const npub = nip19.npubEncode(remotePubkey);
+        const metadata = await fetchUserMetadata(remotePubkey);
+
         const nostrUser: NostrUser = {
           pubkey: remotePubkey,
           npub,
-          name: metadata.name || metadata.display_name,
-          picture: metadata.picture,
+          name: metadata?.name,
+          picture: metadata?.picture,
           readOnly: false,
         };
         setUser(nostrUser);
@@ -285,7 +276,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [pool, relays, setCurrentUser]
+    [fetchUserMetadata, setCurrentUser]
   );
 
   const publishCanvasAction = useCallback(
