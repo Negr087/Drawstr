@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Chrome, AlertCircle, Smartphone, Copy, Check, Eye } from "lucide-react";
+import { Loader2, Chrome, AlertCircle, Smartphone, Copy, Check, Eye, ExternalLink } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useNostrConnect } from "@/lib/use-nostr-connect";
 
@@ -210,6 +210,13 @@ useEffect(() => {
       <div className="flex justify-center p-4 bg-white rounded-lg">
         <QRCodeSVG value={nip46.uri} size={200} level="M" />
       </div>
+
+      <a href={nip46.uri!} className="block">
+        <Button className="w-full gap-2" size="lg" variant="outline">
+          <ExternalLink className="h-4 w-4" />
+          Open in Primal
+        </Button>
+      </a>
 
       <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">
