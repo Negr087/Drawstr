@@ -1,7 +1,7 @@
 // lib/use-nostr-connect.ts
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip44, nip04 } from "nostr-tools";
 import { SimplePool } from "nostr-tools";
 
@@ -42,58 +42,40 @@ export function useNostrConnect(relays: string[]) {
   });
 
   const clientSecretKey = useRef<Uint8Array | null>(null);
+  const sessionSecret = useRef<string | null>(null);
+  const listenRelays = useRef<string[]>([]);
+  const clientPubkey = useRef<string | null>(null);
+  const connectedRef = useRef(false);
   const pool = useRef<SimplePool>(new SimplePool());
   const subscriptionRef = useRef<any>(null);
+  // Track when we started listening so we can go back far enough on reconnect
+  const listenStartedAt = useRef<number>(0);
 
-  const generateConnectionUri = () => {
-    const secretBytes = generateSecretKey();
-    clientSecretKey.current = secretBytes;
-    const pubkey = getPublicKey(secretBytes);
-
-    // Random secret that the signer must echo back
-    const randBytes = new Uint8Array(16);
-    crypto.getRandomValues(randBytes);
-    const secret = Array.from(randBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-
-    // Merge dedicated NIP-46 relays with app relays, deduped
-    const allRelays = [...new Set([...NIP46_RELAYS, ...relays])];
-
-    const params = new URLSearchParams();
-    allRelays.forEach(relay => params.append("relay", relay));
-    params.append("secret", secret);
-    params.append("name", "NostrDraw");
-    params.append("url", typeof window !== "undefined" ? window.location.origin : "https://drawstr.vercel.app");
-
-    const uri = `nostrconnect://${pubkey}?${params.toString()}`;
-    console.log("[NIP-46] Generated URI:", uri);
-
-    setState(prev => ({ ...prev, uri, isWaiting: true }));
-    startListening(pubkey, secretBytes, secret, allRelays);
-  };
-
-  const startListening = (
+  const startListening = useCallback((
     pubkey: string,
     secretBytes: Uint8Array,
     secret: string,
-    listenRelays: string[]
+    relaysToUse: string[],
+    since: number
   ) => {
     if (subscriptionRef.current) {
       subscriptionRef.current.close();
     }
 
-    console.log("[NIP-46] Listening on relays:", listenRelays);
+    console.log("[NIP-46] Subscribing since:", since, "on relays:", relaysToUse);
 
     subscriptionRef.current = pool.current.subscribeMany(
-      listenRelays,
+      relaysToUse,
       [
         {
           kinds: [24133],
           "#p": [pubkey],
-          since: Math.floor(Date.now() / 1000) - 10,
+          since,
         },
       ] as any,
       {
         async onevent(event: any) {
+          if (connectedRef.current) return; // already connected
           console.log("[NIP-46] Received event from:", event.pubkey);
           const signerPubkey: string = event.pubkey;
           let decrypted: string;
@@ -125,7 +107,7 @@ export function useNostrConnect(relays: string[]) {
               const receivedSecret: string | undefined = message.params?.[1];
 
               if (receivedSecret && receivedSecret !== secret) {
-                console.warn("[NIP-46] Secret mismatch, ignoring. Got:", receivedSecret, "Expected:", secret);
+                console.warn("[NIP-46] Secret mismatch. Got:", receivedSecret, "Expected:", secret);
                 return;
               }
 
@@ -143,9 +125,10 @@ export function useNostrConnect(relays: string[]) {
                 secretBytes
               );
 
-              await Promise.allSettled(pool.current.publish(listenRelays, ackEvent));
+              await Promise.allSettled(pool.current.publish(relaysToUse, ackEvent));
               console.log("[NIP-46] ACK sent, user pubkey:", userPubkey);
 
+              connectedRef.current = true;
               setState(prev => ({
                 ...prev,
                 connected: true,
@@ -160,19 +143,76 @@ export function useNostrConnect(relays: string[]) {
           }
         },
         oneose() {
-          console.log("[NIP-46] EOSE - subscription active, waiting for signer...");
+          console.log("[NIP-46] EOSE - waiting for signer...");
         },
       }
     );
-  };
+  }, []);
 
-  const reset = () => {
+  const generateConnectionUri = useCallback(() => {
+    const secretBytes = generateSecretKey();
+    clientSecretKey.current = secretBytes;
+    const pubkey = getPublicKey(secretBytes);
+    clientPubkey.current = pubkey;
+    connectedRef.current = false;
+
+    const randBytes = new Uint8Array(16);
+    crypto.getRandomValues(randBytes);
+    const secret = Array.from(randBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    sessionSecret.current = secret;
+
+    const allRelays = [...new Set([...NIP46_RELAYS, ...relays])];
+    listenRelays.current = allRelays;
+
+    const params = new URLSearchParams();
+    allRelays.forEach(relay => params.append("relay", relay));
+    params.append("secret", secret);
+    params.append("name", "NostrDraw");
+    params.append("url", typeof window !== "undefined" ? window.location.origin : "https://drawstr.vercel.app");
+
+    const uri = `nostrconnect://${pubkey}?${params.toString()}`;
+    console.log("[NIP-46] Generated URI:", uri);
+
+    const now = Math.floor(Date.now() / 1000);
+    listenStartedAt.current = now;
+
+    setState(prev => ({ ...prev, uri, isWaiting: true }));
+    startListening(pubkey, secretBytes, secret, allRelays, now - 5);
+  }, [relays, startListening]);
+
+  // Re-subscribe when page becomes visible again (mobile browser resumes from background)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (connectedRef.current) return;
+      if (!clientSecretKey.current || !clientPubkey.current || !sessionSecret.current) return;
+
+      console.log("[NIP-46] Page became visible, re-subscribing...");
+      // Go back to when we started listening to catch any events we missed
+      const since = listenStartedAt.current - 5;
+      startListening(
+        clientPubkey.current,
+        clientSecretKey.current,
+        sessionSecret.current,
+        listenRelays.current,
+        since
+      );
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [startListening]);
+
+  const reset = useCallback(() => {
     if (subscriptionRef.current) {
       subscriptionRef.current.close();
     }
     clientSecretKey.current = null;
+    clientPubkey.current = null;
+    sessionSecret.current = null;
+    connectedRef.current = false;
     setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false });
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
