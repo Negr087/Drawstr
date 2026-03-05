@@ -1560,15 +1560,28 @@ case "diamond":
     [zoom, viewportOffset, setZoom, setViewportOffset]
   );
 
-  // Touch support - convertir touch a mouse events
-const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-  if (e.touches.length !== 1) return; // Solo 1 dedo
-  
-  const touch = e.touches[0];
-  const rect = canvasRef.current?.getBoundingClientRect();
-  if (!rect) return;
+  // Touch support - single finger draws, two fingers pinch-to-zoom/pan
+  const lastPinchDistRef = useRef<number | null>(null);
+  const lastPinchCenterRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Simular mousedown
+const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    // Start of pinch gesture — cancel any ongoing draw
+    lastTouchPos.current = null;
+    handleMouseUp();
+    const t0 = e.touches[0];
+    const t1 = e.touches[1];
+    lastPinchDistRef.current = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    lastPinchCenterRef.current = {
+      x: (t0.clientX + t1.clientX) / 2,
+      y: (t0.clientY + t1.clientY) / 2,
+    };
+    return;
+  }
+  if (e.touches.length !== 1) return;
+
+  const touch = e.touches[0];
   const mouseEvent = {
     preventDefault: () => e.preventDefault(),
     clientX: touch.clientX,
@@ -1579,17 +1592,48 @@ const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) =>
   } as React.MouseEvent<HTMLCanvasElement>;
 
   handleMouseDown(mouseEvent);
-}, [handleMouseDown]);
+}, [handleMouseDown, handleMouseUp]);
 
 const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
   e.preventDefault();
-  if (e.touches.length !== 1) return;
-  
-  const touch = e.touches[0];
-  const rect = canvasRef.current?.getBoundingClientRect();
-  if (!rect) return;
 
-  // Calcular movementX y movementY manualmente
+  if (e.touches.length === 2) {
+    const t0 = e.touches[0];
+    const t1 = e.touches[1];
+    const newDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const newCenter = {
+      x: (t0.clientX + t1.clientX) / 2,
+      y: (t0.clientY + t1.clientY) / 2,
+    };
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect && lastPinchDistRef.current !== null && lastPinchCenterRef.current !== null) {
+      // Pinch zoom
+      const distRatio = newDist / lastPinchDistRef.current;
+      const newZoom = Math.max(0.1, Math.min(5, zoom * distRatio));
+      const pivotX = newCenter.x - rect.left;
+      const pivotY = newCenter.y - rect.top;
+      const zoomRatio = newZoom / zoom;
+
+      // Pan from center movement
+      const panX = newCenter.x - lastPinchCenterRef.current.x;
+      const panY = newCenter.y - lastPinchCenterRef.current.y;
+
+      setViewportOffset({
+        x: pivotX - (pivotX - viewportOffset.x) * zoomRatio + panX,
+        y: pivotY - (pivotY - viewportOffset.y) * zoomRatio + panY,
+      });
+      setZoom(newZoom);
+    }
+
+    lastPinchDistRef.current = newDist;
+    lastPinchCenterRef.current = newCenter;
+    return;
+  }
+
+  if (e.touches.length !== 1) return;
+
+  const touch = e.touches[0];
   let movementX = 0;
   let movementY = 0;
   if (lastTouchPos.current) {
@@ -1608,12 +1652,18 @@ const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => 
   } as React.MouseEvent<HTMLCanvasElement>;
 
   handleMouseMove(mouseEvent);
-}, [handleMouseMove]);
+}, [handleMouseMove, zoom, viewportOffset, setZoom, setViewportOffset]);
 
 const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
   e.preventDefault();
-  lastTouchPos.current = null; // ← Reset al soltar
-  handleMouseUp();
+  if (e.touches.length < 2) {
+    lastPinchDistRef.current = null;
+    lastPinchCenterRef.current = null;
+  }
+  if (e.touches.length === 0) {
+    lastTouchPos.current = null;
+    handleMouseUp();
+  }
 }, [handleMouseUp]);
 
   // Handle keyboard shortcuts
