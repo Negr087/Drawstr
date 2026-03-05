@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { generateSecretKey, getPublicKey, finalizeEvent, nip44 } from "nostr-tools";
+import { generateSecretKey, getPublicKey, finalizeEvent, nip44, nip04 } from "nostr-tools";
 import { SimplePool } from "nostr-tools";
 
 interface NostrConnectState {
@@ -12,7 +12,26 @@ interface NostrConnectState {
   isWaiting: boolean;
 }
 
-const NIP46_RELAY = "wss://relay.nsec.app";
+// Dedicated NIP-46 relays used by major signers
+const NIP46_RELAYS = [
+  "wss://relay.nsec.app",
+  "wss://relay.primal.net",
+  "wss://relay.damus.io",
+];
+
+async function encryptAck(
+  content: string,
+  secretBytes: Uint8Array,
+  signerPubkey: string,
+  usedNip44: boolean
+): Promise<string> {
+  if (usedNip44) {
+    const convKey = nip44.getConversationKey(secretBytes, signerPubkey);
+    return nip44.encrypt(content, convKey);
+  }
+  const secretHex = Array.from(secretBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  return nip04.encrypt(secretHex, signerPubkey, content);
+}
 
 export function useNostrConnect(relays: string[]) {
   const [state, setState] = useState<NostrConnectState>({
@@ -23,8 +42,6 @@ export function useNostrConnect(relays: string[]) {
   });
 
   const clientSecretKey = useRef<Uint8Array | null>(null);
-  const clientPubkey = useRef<string | null>(null);
-  const sessionSecret = useRef<string | null>(null);
   const pool = useRef<SimplePool>(new SimplePool());
   const subscriptionRef = useRef<any>(null);
 
@@ -32,19 +49,17 @@ export function useNostrConnect(relays: string[]) {
     const secretBytes = generateSecretKey();
     clientSecretKey.current = secretBytes;
     const pubkey = getPublicKey(secretBytes);
-    clientPubkey.current = pubkey;
 
     // Random secret that the signer must echo back
     const randBytes = new Uint8Array(16);
     crypto.getRandomValues(randBytes);
     const secret = Array.from(randBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-    sessionSecret.current = secret;
 
-    // NIP-46 relays: always include relay.nsec.app which is dedicated to NIP-46
-    const nip46Relays = [NIP46_RELAY, ...relays.filter(r => r !== NIP46_RELAY)];
+    // Merge dedicated NIP-46 relays with app relays, deduped
+    const allRelays = [...new Set([...NIP46_RELAYS, ...relays])];
 
     const params = new URLSearchParams();
-    nip46Relays.forEach(relay => params.append("relay", relay));
+    allRelays.forEach(relay => params.append("relay", relay));
     params.append("secret", secret);
     params.append("name", "NostrDraw");
     params.append("url", typeof window !== "undefined" ? window.location.origin : "https://drawstr.vercel.app");
@@ -53,7 +68,7 @@ export function useNostrConnect(relays: string[]) {
     console.log("[NIP-46] Generated URI:", uri);
 
     setState(prev => ({ ...prev, uri, isWaiting: true }));
-    startListening(pubkey, secretBytes, secret, nip46Relays);
+    startListening(pubkey, secretBytes, secret, allRelays);
   };
 
   const startListening = (
@@ -80,12 +95,28 @@ export function useNostrConnect(relays: string[]) {
       {
         async onevent(event: any) {
           console.log("[NIP-46] Received event from:", event.pubkey);
-          try {
-            const signerPubkey = event.pubkey;
-            const convKey = nip44.getConversationKey(secretBytes, signerPubkey);
-            const decrypted = nip44.decrypt(event.content, convKey);
-            console.log("[NIP-46] Decrypted:", decrypted);
+          const signerPubkey: string = event.pubkey;
+          let decrypted: string;
+          let usedNip44 = true;
 
+          try {
+            const convKey = nip44.getConversationKey(secretBytes, signerPubkey);
+            decrypted = nip44.decrypt(event.content, convKey);
+            console.log("[NIP-46] Decrypted (NIP-44):", decrypted);
+          } catch {
+            console.log("[NIP-46] NIP-44 failed, trying NIP-04...");
+            usedNip44 = false;
+            try {
+              const secretHex = Array.from(secretBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+              decrypted = nip04.decrypt(secretHex, signerPubkey, event.content);
+              console.log("[NIP-46] Decrypted (NIP-04):", decrypted);
+            } catch (err) {
+              console.error("[NIP-46] Both NIP-44 and NIP-04 decryption failed:", err);
+              return;
+            }
+          }
+
+          try {
             const message = JSON.parse(decrypted);
             console.log("[NIP-46] Method:", message.method, "Params:", message.params);
 
@@ -94,14 +125,13 @@ export function useNostrConnect(relays: string[]) {
               const receivedSecret: string | undefined = message.params?.[1];
 
               if (receivedSecret && receivedSecret !== secret) {
-                console.warn("[NIP-46] Secret mismatch, ignoring");
+                console.warn("[NIP-46] Secret mismatch, ignoring. Got:", receivedSecret, "Expected:", secret);
                 return;
               }
 
-              // Send ACK response
+              // Send ACK using same encryption the signer used
               const response = JSON.stringify({ id: message.id, result: secret, error: null });
-              const ackConvKey = nip44.getConversationKey(secretBytes, signerPubkey);
-              const encrypted = nip44.encrypt(response, ackConvKey);
+              const encrypted = await encryptAck(response, secretBytes, signerPubkey, usedNip44);
 
               const ackEvent = finalizeEvent(
                 {
@@ -125,12 +155,12 @@ export function useNostrConnect(relays: string[]) {
 
               subscriptionRef.current?.close();
             }
-          } catch (error) {
-            console.error("[NIP-46] Failed to process event:", error);
+          } catch (err) {
+            console.error("[NIP-46] Failed to parse/handle message:", err);
           }
         },
         oneose() {
-          console.log("[NIP-46] EOSE - waiting for signer...");
+          console.log("[NIP-46] EOSE - subscription active, waiting for signer...");
         },
       }
     );
@@ -141,8 +171,6 @@ export function useNostrConnect(relays: string[]) {
       subscriptionRef.current.close();
     }
     clientSecretKey.current = null;
-    clientPubkey.current = null;
-    sessionSecret.current = null;
     setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false });
   };
 
