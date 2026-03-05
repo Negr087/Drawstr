@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNostr } from "@/lib/nostr-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,23 +39,28 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
   const { relays } = useNostr();
   const nip46 = useNostrConnect(relays);
 
+  const loginInProgressRef = useRef(false);
+
   // Detectar conexión NIP-46 exitosa
-useEffect(() => {
-  if (nip46.connected && nip46.remotePubkey) {
-    console.log("🎉 NIP-46 connected! Remote pubkey:", nip46.remotePubkey);
-    
-    // Llamar a loginWithRemoteSigner
-    loginWithRemoteSigner(nip46.remotePubkey)
-      .then(() => {
-        console.log("✅ Login successful!");
-        onOpenChange(false);
-        nip46.reset(); // Limpiar el estado NIP-46
-      })
-      .catch((err) => {
-        console.error("❌ Login failed:", err);
-      });
-  }
-}, [nip46.connected, nip46.remotePubkey, onOpenChange, nip46]);
+  useEffect(() => {
+    if (nip46.connected && nip46.remotePubkey && !loginInProgressRef.current) {
+      loginInProgressRef.current = true;
+      console.log("NIP-46 connected! Remote pubkey:", nip46.remotePubkey);
+      loginWithRemoteSigner(nip46.remotePubkey)
+        .then(() => {
+          console.log("Login successful!");
+          onOpenChange(false);
+          nip46.reset();
+        })
+        .catch((err) => {
+          console.error("Login failed:", err);
+          loginInProgressRef.current = false;
+        });
+    }
+    if (!nip46.connected) {
+      loginInProgressRef.current = false;
+    }
+  }, [nip46.connected, nip46.remotePubkey, loginWithRemoteSigner, onOpenChange, nip46.reset]);
 
   // Close modal when user successfully logs in
   useEffect(() => {

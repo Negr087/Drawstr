@@ -2,8 +2,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { generateSecretKey, getPublicKey, finalizeEvent, nip44, nip04 } from "nostr-tools";
-import { SimplePool } from "nostr-tools";
+import { generateSecretKey, getPublicKey, finalizeEvent, nip44, nip04, SimplePool } from "nostr-tools";
 
 interface NostrConnectState {
   uri: string | null;
@@ -12,25 +11,48 @@ interface NostrConnectState {
   isWaiting: boolean;
 }
 
-// Dedicated NIP-46 relays used by major signers
 const NIP46_RELAYS = [
   "wss://relay.nsec.app",
-  "wss://relay.primal.net",
   "wss://relay.damus.io",
+  "wss://relay.primal.net",
 ];
 
-async function encryptAck(
+const POLL_INTERVAL_MS = 2000;
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function isTaggedToUs(event: any, pubkey: string): boolean {
+  return event.tags?.some((t: string[]) => t[0] === "p" && t[1] === pubkey) ?? false;
+}
+
+async function decryptContent(
+  content: string,
+  secretBytes: Uint8Array,
+  signerPubkey: string
+): Promise<{ text: string; usedNip44: boolean } | null> {
+  try {
+    const text = nip44.decrypt(content, nip44.getConversationKey(secretBytes, signerPubkey));
+    return { text, usedNip44: true };
+  } catch {}
+  try {
+    const text = nip04.decrypt(toHex(secretBytes), signerPubkey, content);
+    return { text, usedNip44: false };
+  } catch {}
+  return null;
+}
+
+async function encryptContent(
   content: string,
   secretBytes: Uint8Array,
   signerPubkey: string,
-  usedNip44: boolean
+  useNip44: boolean
 ): Promise<string> {
-  if (usedNip44) {
-    const convKey = nip44.getConversationKey(secretBytes, signerPubkey);
-    return nip44.encrypt(content, convKey);
+  if (useNip44) {
+    return nip44.encrypt(content, nip44.getConversationKey(secretBytes, signerPubkey));
   }
-  const secretHex = Array.from(secretBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-  return nip04.encrypt(secretHex, signerPubkey, content);
+  return nip04.encrypt(toHex(secretBytes), signerPubkey, content);
 }
 
 export function useNostrConnect(relays: string[]) {
@@ -46,108 +68,139 @@ export function useNostrConnect(relays: string[]) {
   const listenRelays = useRef<string[]>([]);
   const clientPubkey = useRef<string | null>(null);
   const connectedRef = useRef(false);
-  const pool = useRef<SimplePool>(new SimplePool());
-  const subscriptionRef = useRef<any>(null);
-  // Track when we started listening so we can go back far enough on reconnect
   const listenStartedAt = useRef<number>(0);
+  const pool = useRef<SimplePool>(new SimplePool());
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const startListening = useCallback((
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
+  const processEvent = useCallback(async (
+    event: any,
     pubkey: string,
     secretBytes: Uint8Array,
     secret: string,
-    relaysToUse: string[],
-    since: number
-  ) => {
-    if (subscriptionRef.current) {
-      subscriptionRef.current.close();
+    relaysToUse: string[]
+  ): Promise<boolean> => {
+    if (!isTaggedToUs(event, pubkey)) return false;
+
+    const signerPubkey: string = event.pubkey;
+    const dec = await decryptContent(event.content, secretBytes, signerPubkey);
+
+    if (!dec) {
+      console.warn("[NIP-46] Could not decrypt event from:", signerPubkey);
+      return false;
     }
 
-    console.log("[NIP-46] Subscribing since:", since, "on relays:", relaysToUse);
+    console.log("[NIP-46] Decrypted (NIP-" + (dec.usedNip44 ? "44" : "04") + "):", dec.text);
 
-    subscriptionRef.current = pool.current.subscribeMany(
-      relaysToUse,
-      [
-        {
-          kinds: [24133],
-          "#p": [pubkey],
-          since,
-        },
-      ] as any,
-      {
-        async onevent(event: any) {
-          if (connectedRef.current) return; // already connected
-          console.log("[NIP-46] Received event from:", event.pubkey);
-          const signerPubkey: string = event.pubkey;
-          let decrypted: string;
-          let usedNip44 = true;
+    let message: any;
+    try {
+      message = JSON.parse(dec.text);
+    } catch {
+      console.error("[NIP-46] JSON parse failed:", dec.text);
+      return false;
+    }
 
-          try {
-            const convKey = nip44.getConversationKey(secretBytes, signerPubkey);
-            decrypted = nip44.decrypt(event.content, convKey);
-            console.log("[NIP-46] Decrypted (NIP-44):", decrypted);
-          } catch {
-            console.log("[NIP-46] NIP-44 failed, trying NIP-04...");
-            usedNip44 = false;
-            try {
-              const secretHex = Array.from(secretBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-              decrypted = nip04.decrypt(secretHex, signerPubkey, event.content);
-              console.log("[NIP-46] Decrypted (NIP-04):", decrypted);
-            } catch (err) {
-              console.error("[NIP-46] Both NIP-44 and NIP-04 decryption failed:", err);
-              return;
-            }
-          }
+    let userPubkey: string;
 
-          try {
-            const message = JSON.parse(decrypted);
-            console.log("[NIP-46] Method:", message.method, "Params:", message.params);
+    if (message.method === "connect") {
+      // Standard NIP-46: signer sends {method:"connect", params:[pubkey, secret]}
+      userPubkey = message.params?.[0] ?? signerPubkey;
+      const receivedSecret: string | undefined = message.params?.[1];
 
-            if (message.method === "connect") {
-              const userPubkey: string = message.params?.[0] ?? signerPubkey;
-              const receivedSecret: string | undefined = message.params?.[1];
-
-              if (receivedSecret && receivedSecret !== secret) {
-                console.warn("[NIP-46] Secret mismatch. Got:", receivedSecret, "Expected:", secret);
-                return;
-              }
-
-              // Send ACK using same encryption the signer used
-              const response = JSON.stringify({ id: message.id, result: secret, error: null });
-              const encrypted = await encryptAck(response, secretBytes, signerPubkey, usedNip44);
-
-              const ackEvent = finalizeEvent(
-                {
-                  kind: 24133,
-                  created_at: Math.floor(Date.now() / 1000),
-                  tags: [["p", signerPubkey]],
-                  content: encrypted,
-                },
-                secretBytes
-              );
-
-              await Promise.allSettled(pool.current.publish(relaysToUse, ackEvent));
-              console.log("[NIP-46] ACK sent, user pubkey:", userPubkey);
-
-              connectedRef.current = true;
-              setState(prev => ({
-                ...prev,
-                connected: true,
-                remotePubkey: userPubkey,
-                isWaiting: false,
-              }));
-
-              subscriptionRef.current?.close();
-            }
-          } catch (err) {
-            console.error("[NIP-46] Failed to parse/handle message:", err);
-          }
-        },
-        oneose() {
-          console.log("[NIP-46] EOSE - waiting for signer...");
-        },
+      if (receivedSecret && receivedSecret !== secret) {
+        console.warn("[NIP-46] Secret mismatch. Got:", receivedSecret, "Expected:", secret);
+        return false;
       }
-    );
-  }, []);
+
+      // Send ACK
+      const response = JSON.stringify({ id: message.id, result: secret, error: null });
+      const encrypted = await encryptContent(response, secretBytes, signerPubkey, dec.usedNip44);
+      const ackEvent = finalizeEvent(
+        {
+          kind: 24133,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [["p", signerPubkey]],
+          content: encrypted,
+        },
+        secretBytes
+      );
+      await Promise.allSettled(pool.current.publish(relaysToUse, ackEvent));
+      console.log("[NIP-46] ACK sent");
+
+    } else if (typeof message.result === "string") {
+      // Primal/alternative format: signer sends {id:"...", result:secret} directly
+      // The user's pubkey is event.pubkey (the key that signed this event)
+      if (message.result !== secret) {
+        console.warn("[NIP-46] Result doesn't match secret. Got:", message.result);
+        return false;
+      }
+      userPubkey = signerPubkey;
+      console.log("[NIP-46] Primal-style connect accepted");
+
+    } else {
+      console.log("[NIP-46] Unknown message format:", JSON.stringify(message));
+      return false;
+    }
+
+    console.log("[NIP-46] Connected! User pubkey:", userPubkey);
+    connectedRef.current = true;
+    stopPolling();
+    setState(prev => ({ ...prev, connected: true, remotePubkey: userPubkey, isWaiting: false }));
+    return true;
+  }, [stopPolling]);
+
+  const pollOnce = useCallback(async () => {
+    if (connectedRef.current) { stopPolling(); return; }
+    const secretBytes = clientSecretKey.current;
+    const pubkey = clientPubkey.current;
+    const secret = sessionSecret.current;
+    const relaysToUse = listenRelays.current;
+    if (!secretBytes || !pubkey || !secret) return;
+
+    const since = listenStartedAt.current - 5;
+    try {
+      const events = await pool.current.querySync(
+        relaysToUse,
+        { kinds: [24133], "#p": [pubkey], since } as any
+      );
+      for (const event of events) {
+        if (connectedRef.current) return;
+        const ok = await processEvent(event, pubkey, secretBytes, secret, relaysToUse);
+        if (ok) return;
+      }
+    } catch (err) {
+      console.warn("[NIP-46] Poll error:", err);
+    }
+  }, [processEvent, stopPolling]);
+
+  const startPolling = useCallback((
+    pubkey: string,
+    secretBytes: Uint8Array,
+    secret: string,
+    relaysToUse: string[]
+  ) => {
+    stopPolling();
+    // Immediate first poll
+    pool.current.querySync(
+      relaysToUse,
+      { kinds: [24133], "#p": [pubkey], since: listenStartedAt.current - 5 } as any
+    ).then(async (events) => {
+      for (const event of events) {
+        if (connectedRef.current) return;
+        const ok = await processEvent(event, pubkey, secretBytes, secret, relaysToUse);
+        if (ok) return;
+      }
+    }).catch(() => {});
+
+    pollIntervalRef.current = setInterval(pollOnce, POLL_INTERVAL_MS);
+    console.log("[NIP-46] Polling every", POLL_INTERVAL_MS, "ms on relays:", relaysToUse);
+  }, [processEvent, pollOnce, stopPolling]);
 
   const generateConnectionUri = useCallback(() => {
     const secretBytes = generateSecretKey();
@@ -158,7 +211,7 @@ export function useNostrConnect(relays: string[]) {
 
     const randBytes = new Uint8Array(16);
     crypto.getRandomValues(randBytes);
-    const secret = Array.from(randBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    const secret = toHex(randBytes);
     sessionSecret.current = secret;
 
     const allRelays = [...new Set([...NIP46_RELAYS, ...relays])];
@@ -177,50 +230,39 @@ export function useNostrConnect(relays: string[]) {
     listenStartedAt.current = now;
 
     setState(prev => ({ ...prev, uri, isWaiting: true }));
-    startListening(pubkey, secretBytes, secret, allRelays, now - 5);
-  }, [relays, startListening]);
+    startPolling(pubkey, secretBytes, secret, allRelays);
+  }, [relays, startPolling]);
 
-  // Re-subscribe when page becomes visible again (mobile browser resumes from background)
+  // On returning from background (e.g. after opening Primal deep link), force an immediate poll
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      if (connectedRef.current) return;
-      if (!clientSecretKey.current || !clientPubkey.current || !sessionSecret.current) return;
-
-      console.log("[NIP-46] Page became visible, re-subscribing...");
-      // Go back to when we started listening to catch any events we missed
-      const since = listenStartedAt.current - 5;
-      startListening(
-        clientPubkey.current,
-        clientSecretKey.current,
-        sessionSecret.current,
-        listenRelays.current,
-        since
-      );
+    const handle = () => {
+      if (document.visibilityState === "visible") {
+        if (!connectedRef.current && clientPubkey.current) {
+          console.log("[NIP-46] Page visible again, polling immediately...");
+          pollOnce();
+        }
+      }
     };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [startListening]);
+    document.addEventListener("visibilitychange", handle);
+    window.addEventListener("focus", handle);
+    return () => {
+      document.removeEventListener("visibilitychange", handle);
+      window.removeEventListener("focus", handle);
+    };
+  }, [pollOnce]);
 
   const reset = useCallback(() => {
-    if (subscriptionRef.current) {
-      subscriptionRef.current.close();
-    }
+    stopPolling();
     clientSecretKey.current = null;
     clientPubkey.current = null;
     sessionSecret.current = null;
     connectedRef.current = false;
     setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false });
-  }, []);
+  }, [stopPolling]);
 
   useEffect(() => {
-    return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current.close();
-      }
-    };
-  }, []);
+    return () => stopPolling();
+  }, [stopPolling]);
 
   return { ...state, generateConnectionUri, reset };
 }
