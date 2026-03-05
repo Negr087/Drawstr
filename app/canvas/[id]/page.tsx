@@ -66,28 +66,33 @@ export default function CanvasPage({ params }: PageProps) {
       setCanvasAuthor({ pubkey: author });
       
       if (pool) {
-        const sub = pool.subscribeMany(
-          relays,
-          [{ kinds: [0], authors: [author], limit: 1 }] as any,
-          {
-            onevent(event: any) {
-              try {
-                const metadata = JSON.parse(event.content);
-                setCanvasAuthor({
-                  pubkey: author,
-                  name: metadata.name || metadata.display_name,
-                  picture: metadata.picture,
-                });
-                sub.close();
-              } catch (err) {
-                console.error(err);
-              }
-            },
-            oneose() {
-              sub.close();
-            },
+        const profileRelays = [
+          ...relays,
+          "wss://purplepag.es",
+          "wss://relay.nostr.band",
+          "wss://relay.damus.io",
+          "wss://nos.lol",
+        ].filter((r, i, arr) => arr.indexOf(r) === i);
+
+        (async () => {
+          try {
+            const events = await pool.querySync(profileRelays, {
+              kinds: [0],
+              authors: [author],
+              limit: 1,
+            } as any);
+            if (events.length > 0) {
+              const metadata = JSON.parse(events[0].content);
+              setCanvasAuthor({
+                pubkey: author,
+                name: metadata.name || metadata.display_name,
+                picture: metadata.picture,
+              });
+            }
+          } catch (err) {
+            console.error("Failed to fetch author profile:", err);
           }
-        );
+        })();
       }
     }
     
@@ -244,6 +249,7 @@ export default function CanvasPage({ params }: PageProps) {
         onShare={() => setShowShareModal(true)}
         onClearCanvas={() => setShowClearDialog(true)}
         onPostToNostr={() => setShowPostModal(true)}
+        onLogin={() => setShowLoginModal(true)}
         canvasAuthor={canvasAuthor?.pubkey}
         canvasAuthorName={canvasAuthor?.name}
         canvasAuthorPicture={canvasAuthor?.picture}
@@ -276,10 +282,18 @@ export default function CanvasPage({ params }: PageProps) {
 
       {/* View-Only Banner */}
       {isViewOnly && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-orange-500/90 backdrop-blur-sm border border-orange-400 rounded-lg px-4 py-2 shadow-lg">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-orange-500/90 backdrop-blur-sm border border-orange-400 rounded-lg px-4 py-2 shadow-lg flex items-center gap-3">
           <p className="text-sm text-white font-medium">
-            👁️ View-only mode • You cannot edit this canvas
+            View-only mode
           </p>
+          {!user && showZapButton && (
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="text-xs text-white underline underline-offset-2 hover:text-orange-100 transition-colors whitespace-nowrap"
+            >
+              Connect Nostr to Zap
+            </button>
+          )}
         </div>
       )}
 

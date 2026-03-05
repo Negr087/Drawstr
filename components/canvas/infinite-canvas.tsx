@@ -1199,29 +1199,70 @@ case "diamond":
   }
 
   // ===== RESIZE NORMAL (1 elemento) =====
-  const { originalElement } = resizing;
-  let newElement = { ...originalElement };
+const { originalElement } = resizing;
+let newElement = { ...originalElement };
 
-  if (["rectangle", "ellipse", "image", "text"].includes(newElement.type)) {
-    const el = newElement as RectangleElement | EllipseElement | ImageElement | TextElement;
+// Elementos con width/height (rectangle, ellipse, image, text, shapes)
+if (["rectangle", "ellipse", "image", "text", "triangle", "star", "hexagon", "diamond"].includes(newElement.type)) {
+  const el = newElement as RectangleElement | EllipseElement | ImageElement | TextElement | PolygonElement;
 
-    if (handle.includes("e")) el.width = Math.max(1, (originalElement as any).width + dx);
-    if (handle.includes("w")) {
-      const newWidth = Math.max(1, (originalElement as any).width - dx);
-      el.x = (originalElement as any).x + ((originalElement as any).width - newWidth);
-      el.width = newWidth;
-    }
-    if (handle.includes("s")) el.height = Math.max(1, (originalElement as any).height + dy);
-    if (handle.includes("n")) {
-      const newHeight = Math.max(1, (originalElement as any).height - dy);
-      el.y = (originalElement as any).y + ((originalElement as any).height - newHeight);
-      el.height = newHeight;
-    }
-
-    updateElement(el.id, el);
+  if (handle.includes("e")) el.width = Math.max(1, (originalElement as any).width + dx);
+  if (handle.includes("w")) {
+    const newWidth = Math.max(1, (originalElement as any).width - dx);
+    el.x = (originalElement as any).x + ((originalElement as any).width - newWidth);
+    el.width = newWidth;
   }
-  return;
+  if (handle.includes("s")) el.height = Math.max(1, (originalElement as any).height + dy);
+  if (handle.includes("n")) {
+    const newHeight = Math.max(1, (originalElement as any).height - dy);
+    el.y = (originalElement as any).y + ((originalElement as any).height - newHeight);
+    el.height = newHeight;
+  }
+
+  updateElement(el.id, el);
 }
+
+// Elementos con points (arrow, freedraw, line)
+else if (["arrow", "freedraw", "line"].includes(newElement.type)) {
+  const el = newElement as ArrowElement | FreedrawElement | LineElement;
+  const origBounds = getElementBounds(originalElement);
+
+  // Calcular nuevos bounds
+  let newBoundsX = origBounds.x;
+  let newBoundsY = origBounds.y;
+  let newBoundsWidth = origBounds.width;
+  let newBoundsHeight = origBounds.height;
+
+  if (handle.includes("e")) newBoundsWidth = Math.max(10, origBounds.width + dx);
+  if (handle.includes("w")) {
+    newBoundsWidth = Math.max(10, origBounds.width - dx);
+    newBoundsX = origBounds.x + (origBounds.width - newBoundsWidth);
+  }
+  if (handle.includes("s")) newBoundsHeight = Math.max(10, origBounds.height + dy);
+  if (handle.includes("n")) {
+    newBoundsHeight = Math.max(10, origBounds.height - dy);
+    newBoundsY = origBounds.y + (origBounds.height - newBoundsHeight);
+  }
+
+  // Calcular escala
+  const scaleX = newBoundsWidth / origBounds.width;
+  const scaleY = newBoundsHeight / origBounds.height;
+
+  // Escalar puntos
+  const scaledPoints = (originalElement as any).points.map((p: Point) => ({
+    x: p.x * scaleX,
+    y: p.y * scaleY,
+  }));
+
+  updateElement(el.id, {
+    x: newBoundsX,
+    y: newBoundsY,
+    points: scaledPoints,
+  });
+}
+
+return;
+ }
 
       if (selectionBox) {
         setSelectionBox({ ...selectionBox, current: point });

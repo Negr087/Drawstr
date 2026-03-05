@@ -20,6 +20,7 @@ import {
   Share2,
   Users,
   LogOut,
+  LogIn,
   Menu,
   Trash2,
   Copy,
@@ -40,6 +41,7 @@ interface HeaderProps {
   onShare: () => void;
   onClearCanvas: () => void;
   onPostToNostr: () => void;
+  onLogin: () => void;
   canvasAuthor?: string;
   canvasAuthorName?: string;
   canvasAuthorPicture?: string;
@@ -50,6 +52,7 @@ export function Header({
   onShare,
   onClearCanvas,
   onPostToNostr,
+  onLogin,
   canvasAuthor,
   canvasAuthorName,
   canvasAuthorPicture,
@@ -324,9 +327,10 @@ export function Header({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Badge variant="secondary" className="text-xs">
-              Not connected
-            </Badge>
+            <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={onLogin}>
+              <LogIn size={14} />
+              <span className="hidden sm:inline">Connect Nostr</span>
+            </Button>
           )}
         </div>
       </header>

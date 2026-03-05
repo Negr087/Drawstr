@@ -16,6 +16,15 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, Zap, Check, AlertCircle, ExternalLink } from "lucide-react";
 import { nip19 } from "nostr-tools";
+
+declare global {
+  interface Window {
+    webln?: {
+      enable: () => Promise<void>;
+      sendPayment: (paymentRequest: string) => Promise<{ preimage: string }>;
+    };
+  }
+}
 import { QRCodeSVG } from "qrcode.react";
 
 const QUICK_AMOUNTS = [21, 100, 500, 1000, 5000];
@@ -54,6 +63,7 @@ export function ZapModal({
   const [step, setStep] = useState<"amount" | "invoice" | "success" | "paid">("amount");
   const [invoice, setInvoice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingLnAddress, setIsLoadingLnAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lnAddress, setLnAddress] = useState<string | null>(null);
   const { nwcEnabled, sendPayment } = useNWC();
@@ -68,51 +78,42 @@ export function ZapModal({
       setInvoice(null);
       setError(null);
       setLnAddress(null);
+      setIsLoadingLnAddress(true);
       fetchLightningAddress();
     }
   }, [open, recipientPubkey]);
 
-  // Al principio del archivo, después de los imports
-async function querySyncHelper(pool: any, relays: string[], filters: any[]): Promise<any[]> {
-  return new Promise((resolve) => {
-    const collected: any[] = [];
-    const sub = pool.sub(relays, filters);
-    
-    sub.on('event', (event: any) => {
-      collected.push(event);
-    });
-    
-    sub.on('eose', () => {
-      sub.unsub();
-      resolve(collected);
-    });
-    
-    setTimeout(() => {
-      sub.unsub();
-      resolve(collected);
-    }, 3000);
-  });
-}
-
-// Y luego en fetchLightningAddress:
-const fetchLightningAddress = async () => {
-  if (!pool) return;
-  try {
-    const events = await querySyncHelper(pool, relays, [{
-      kinds: [0],
-      authors: [recipientPubkey],
-      limit: 1,
-    }]);
-    
-    if (events.length > 0) {
-      const metadata = JSON.parse(events[0].content);
-      const lnurl = metadata.lud16 || metadata.lud06;
-      if (lnurl) setLnAddress(lnurl);
+  const fetchLightningAddress = async () => {
+    if (!pool) {
+      setIsLoadingLnAddress(false);
+      return;
     }
-  } catch (err) {
-    console.error("Failed to fetch lightning address:", err);
-  }
-};
+    const profileRelays = [
+      ...relays,
+      "wss://purplepag.es",
+      "wss://relay.nostr.band",
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+    ].filter((r, i, arr) => arr.indexOf(r) === i);
+
+    try {
+      const events = await pool.querySync(profileRelays, {
+        kinds: [0],
+        authors: [recipientPubkey],
+        limit: 1,
+      } as any);
+
+      if (events.length > 0) {
+        const metadata = JSON.parse(events[0].content);
+        const lnurl = metadata.lud16 || metadata.lud06;
+        if (lnurl) setLnAddress(lnurl);
+      }
+    } catch (err) {
+      console.error("Failed to fetch lightning address:", err);
+    } finally {
+      setIsLoadingLnAddress(false);
+    }
+  };
 
   // Resolve LNURL / lightning address to callback URL
   const resolveLnurl = async (lnurl: string): Promise<LnurlData | null> => {
@@ -142,7 +143,7 @@ const fetchLightningAddress = async () => {
     }
   };
 
-  // Generate invoice
+  // Generate invoice and pay via best available method
   const handleGenerateInvoice = async () => {
     const finalAmount = customAmount ? parseInt(customAmount) : amount;
 
@@ -172,16 +173,9 @@ const fetchLightningAddress = async () => {
         throw new Error(`Maximum amount is ${lnurlData.maxSendable / 1000} sats`);
       }
 
-      // Build callback URL
       const callbackUrl = new URL(lnurlData.callback);
       callbackUrl.searchParams.set("amount", amountMsats.toString());
       if (comment) callbackUrl.searchParams.set("comment", comment);
-
-      // Add nostr zap request if supported
-      if (lnurlData.allowsNostr && lnurlData.nostrPubkey && user && !user.readOnly) {
-        // Could add NIP-57 zap request here for full zap support
-        // For now we send a simple LNURL payment
-      }
 
       const invoiceResponse = await fetch(callbackUrl.toString());
       if (!invoiceResponse.ok) throw new Error("Failed to generate invoice");
@@ -190,27 +184,38 @@ const fetchLightningAddress = async () => {
       if (invoiceData.status === "ERROR") throw new Error(invoiceData.reason);
       if (!invoiceData.pr) throw new Error("No payment request received");
 
-      setInvoice(invoiceData.pr);
-      setStep("invoice");
+      const pr = invoiceData.pr;
+
+      // 1. Try NWC (instant, no UI)
       if (nwcEnabled) {
-  console.log("💸 NWC enabled, attempting auto-payment...");
-  try {
-    const paymentResult = await sendPayment(invoiceData.pr);
-    if (paymentResult) {
-      console.log("✅ Payment successful via NWC!");
-      setStep("success");
-      setTimeout(() => {
-        onOpenChange(false);
-      }, 2000);
-    } else {
-      console.log("❌ NWC payment failed, showing invoice for manual payment");
-      // Si falla NWC, el usuario puede pagar manualmente
-    }
-  } catch (err) {
-    console.error("NWC payment error:", err);
-    // Si falla NWC, el usuario puede pagar manualmente
-  }
-}
+        try {
+          const result = await sendPayment(pr);
+          if (result) {
+            setStep("success");
+            setTimeout(() => onOpenChange(false), 2000);
+            return;
+          }
+        } catch (err) {
+          console.error("NWC payment failed, falling back:", err);
+        }
+      }
+
+      // 2. Try WebLN (Alby extension modal)
+      if (typeof window !== "undefined" && window.webln) {
+        try {
+          await window.webln.enable();
+          await window.webln.sendPayment(pr);
+          setStep("success");
+          setTimeout(() => onOpenChange(false), 2000);
+          return;
+        } catch (err) {
+          console.error("WebLN payment failed, showing QR:", err);
+        }
+      }
+
+      // 3. Fallback: show QR code
+      setInvoice(pr);
+      setStep("invoice");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate invoice");
     } finally {
@@ -227,6 +232,14 @@ const fetchLightningAddress = async () => {
     if (!invoice) return;
     window.open(`lightning:${invoice}`, "_blank");
   };
+
+  const hasWebln = typeof window !== "undefined" && !!window.webln;
+  const zapButtonLabel = nwcEnabled
+    ? "Zap ⚡"
+    : hasWebln
+    ? "Zap with Alby ⚡"
+    : "Generate Invoice";
+  const zapButtonLoadingLabel = nwcEnabled || hasWebln ? "Sending..." : "Generating invoice...";
 
   const finalAmount = customAmount ? parseInt(customAmount) || 0 : amount;
   const displayName = recipientName || `${recipientPubkey.slice(0, 8)}...`;
@@ -259,7 +272,11 @@ const fetchLightningAddress = async () => {
           <div>
             <p className="text-sm font-medium">{displayName}</p>
             <p className="text-xs text-muted-foreground">
-              {lnAddress || "Checking Lightning address..."}
+              {lnAddress
+                ? lnAddress
+                : isLoadingLnAddress
+                ? "Searching Lightning address..."
+                : "No Lightning address found"}
             </p>
           </div>
         </div>
@@ -338,7 +355,7 @@ const fetchLightningAddress = async () => {
               ) : (
                 <Zap className="h-4 w-4" />
               )}
-              {isLoading ? "Generating invoice..." : "Generate Invoice"}
+              {isLoading ? zapButtonLoadingLabel : zapButtonLabel}
             </Button>
 
             {!lnAddress && !isLoading && (
