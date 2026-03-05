@@ -71,6 +71,9 @@ export function useNostrConnect(relays: string[]) {
   const listenStartedAt = useRef<number>(0);
   const pool = useRef<SimplePool>(new SimplePool());
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Primal sends {result: secret} using a bunker key — we must request the real user pubkey
+  const signerPubkeyRef = useRef<string | null>(null);
+  const pendingGetPubkeyIdRef = useRef<string | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current !== null) {
@@ -133,15 +136,38 @@ export function useNostrConnect(relays: string[]) {
       await Promise.allSettled(pool.current.publish(relaysToUse, ackEvent));
       console.log("[NIP-46] ACK sent");
 
-    } else if (typeof message.result === "string") {
-      // Primal/alternative format: signer sends {id:"...", result:secret} directly
-      // The user's pubkey is event.pubkey (the key that signed this event)
-      if (message.result !== secret) {
-        console.warn("[NIP-46] Result doesn't match secret. Got:", message.result);
-        return false;
-      }
-      userPubkey = signerPubkey;
-      console.log("[NIP-46] Primal-style connect accepted");
+    } else if (
+      pendingGetPubkeyIdRef.current &&
+      message.id === pendingGetPubkeyIdRef.current &&
+      typeof message.result === "string" &&
+      /^[0-9a-f]{64}$/i.test(message.result)
+    ) {
+      // Response to our get_public_key request — this is the real user pubkey
+      userPubkey = message.result;
+      pendingGetPubkeyIdRef.current = null;
+      console.log("[NIP-46] Got real user pubkey:", userPubkey);
+
+    } else if (typeof message.result === "string" && message.result === secret && !pendingGetPubkeyIdRef.current) {
+      // Primal format: signer sends {id:"...", result:secret} using a bunker key
+      // event.pubkey is the bunker key, NOT the user's actual Nostr pubkey
+      // Request the real pubkey via get_public_key
+      signerPubkeyRef.current = signerPubkey;
+      const reqId = toHex(crypto.getRandomValues(new Uint8Array(8)));
+      pendingGetPubkeyIdRef.current = reqId;
+      const request = JSON.stringify({ id: reqId, method: "get_public_key", params: [] });
+      const encrypted = await encryptContent(request, secretBytes, signerPubkey, dec.usedNip44);
+      const reqEvent = finalizeEvent(
+        {
+          kind: 24133,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [["p", signerPubkey]],
+          content: encrypted,
+        },
+        secretBytes
+      );
+      await Promise.allSettled(pool.current.publish(relaysToUse, reqEvent));
+      console.log("[NIP-46] Primal connect accepted, sent get_public_key request");
+      return false; // Keep polling for the get_public_key response
 
     } else {
       console.log("[NIP-46] Unknown message format:", JSON.stringify(message));
@@ -257,6 +283,8 @@ export function useNostrConnect(relays: string[]) {
     clientPubkey.current = null;
     sessionSecret.current = null;
     connectedRef.current = false;
+    signerPubkeyRef.current = null;
+    pendingGetPubkeyIdRef.current = null;
     setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false });
   }, [stopPolling]);
 

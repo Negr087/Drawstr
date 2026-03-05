@@ -5,6 +5,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   type ReactNode,
@@ -86,6 +87,8 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [privateKeyHex, setPrivateKeyHex] = useState<string | null>(null);
+  // Track whether the current session should use window.nostr for signing
+  const useExtensionRef = useRef(false);
 
   const { addElement, updateElement, deleteElement, updateCursor, setCurrentUser } =
     useCanvasStore();
@@ -141,10 +144,9 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     async (unsignedEvent: UnsignedEvent): Promise<Event | null> => {
       try {
         if (user?.readOnly) return null;
-        if (window.nostr && !privateKeyHex) {
+        if (useExtensionRef.current && window.nostr && !privateKeyHex) {
           return await window.nostr.signEvent(unsignedEvent);
         } else if (privateKeyHex) {
-          const secretBytes = hexToBytes(privateKeyHex);
           return finalizeEvent(unsignedEvent, hexToBytes(privateKeyHex));
         }
         return null;
@@ -206,6 +208,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
       setUser(nostrUser);
       setCurrentUser(nostrUser);
       setPrivateKeyHex(null);
+      useExtensionRef.current = true;
       localStorage.setItem("nostr_user", JSON.stringify(nostrUser));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to login");
@@ -243,6 +246,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         setUser(nostrUser);
         setCurrentUser(nostrUser);
         setPrivateKeyHex(null);
+        useExtensionRef.current = false;
         localStorage.setItem("nostr_user", JSON.stringify(nostrUser));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Invalid public key");
@@ -257,7 +261,35 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     async (remotePubkey: string) => {
       try {
         const npub = nip19.npubEncode(remotePubkey);
-        const metadata = await fetchUserMetadata(remotePubkey);
+
+        // Use a fresh pool with expanded relays to avoid timing issues with the main pool
+        const metaRelays = [
+          "wss://relay.primal.net",
+          "wss://relay.damus.io",
+          "wss://nos.lol",
+          "wss://purplepag.es",
+          "wss://relay.nostr.band",
+        ];
+        const metaPool = new SimplePool();
+        let metadata: { name?: string; picture?: string } | null = null;
+        try {
+          const events = await metaPool.querySync(metaRelays, {
+            kinds: [0],
+            authors: [remotePubkey],
+            limit: 1,
+          });
+          if (events.length > 0) {
+            const md = JSON.parse(events[0].content);
+            metadata = {
+              name: md.name || md.display_name,
+              picture: md.picture,
+            };
+          }
+        } finally {
+          try { metaPool.close(metaRelays); } catch {}
+        }
+
+        console.log("NIP-46 metadata:", metadata);
 
         const nostrUser: NostrUser = {
           pubkey: remotePubkey,
@@ -268,6 +300,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         };
         setUser(nostrUser);
         setCurrentUser(nostrUser);
+        useExtensionRef.current = false;
         localStorage.setItem("nostr_user", JSON.stringify(nostrUser));
         console.log("✅ Logged in via NIP-46");
       } catch (error) {
@@ -276,7 +309,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [fetchUserMetadata, setCurrentUser]
+    [setCurrentUser]
   );
 
   const publishCanvasAction = useCallback(
@@ -462,6 +495,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setCurrentUser(null);
     setPrivateKeyHex(null);
+    useExtensionRef.current = false;
     localStorage.removeItem("nostr_user");
   }, [setCurrentUser, user, saveCanvasState]);
 
