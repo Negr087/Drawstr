@@ -354,7 +354,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
 
   const subscribeToCanvas = useCallback(
     (canvasId: string) => {
-      if (!pool || !user) return () => {};
+      if (!pool) return () => {};
 
       // v2: subscribeMany en vez de sub()
       const actionSub = pool.subscribeMany(
@@ -365,7 +365,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
             try {
               const data = JSON.parse(event.content);
               const element = data.element as CanvasElement;
-              if (event.pubkey === user.pubkey) return;
+              if (user && event.pubkey === user.pubkey) return;
               switch (data.action) {
                 case "add": addElement(element); break;
                 case "update": updateElement(element.id, element); break;
@@ -388,7 +388,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         {
           onevent(event) {
             try {
-              if (event.pubkey === user.pubkey) return;
+              if (user && event.pubkey === user.pubkey) return;
               const data = JSON.parse(event.content);
               const colorIndex = parseInt(event.pubkey.slice(-2), 16) % CURSOR_COLORS.length;
               updateCursor({

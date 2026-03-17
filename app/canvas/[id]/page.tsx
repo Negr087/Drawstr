@@ -216,23 +216,24 @@ export default function CanvasPage({ params }: PageProps) {
     autoLoad();
   }, [canvasId, canvasAuthor?.pubkey, user?.pubkey, loadCanvasState, loadElements, setCanvasName, pool, relays]);
 
-  // Subscribe to canvas events
+  // Subscribe to canvas events (works for both authenticated and unauthenticated users)
   useEffect(() => {
-    if (!user || !isConnected || isSubscribed) return;
-    
+    if (!isConnected || isSubscribed) return;
+
     console.log("Subscribing to canvas:", canvasId);
     setIsSubscribed(true);
     const unsubscribe = subscribeToCanvas(canvasId);
-    
+
     return () => {
       console.log("Unsubscribing from canvas:", canvasId);
       unsubscribe();
     };
-  }, [user, isConnected, canvasId, isSubscribed, subscribeToCanvas]);
+  }, [isConnected, canvasId, isSubscribed, subscribeToCanvas]);
 
+  // Re-subscribe when auth state changes (subscribeToCanvas ref changes with user)
   useEffect(() => {
-    if (!user) setIsSubscribed(false);
-  }, [user]);
+    setIsSubscribed(false);
+  }, [subscribeToCanvas]);
 
   const handleClearCanvas = useCallback(() => {
     clearCanvas();
