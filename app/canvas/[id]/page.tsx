@@ -230,10 +230,10 @@ export default function CanvasPage({ params }: PageProps) {
     };
   }, [isConnected, canvasId, isSubscribed, subscribeToCanvas]);
 
-  // Re-subscribe when auth state changes (subscribeToCanvas ref changes with user)
+  // Re-subscribe when user auth state changes so own events are filtered correctly
   useEffect(() => {
     setIsSubscribed(false);
-  }, [subscribeToCanvas]);
+  }, [user]);
 
   const handleClearCanvas = useCallback(() => {
     clearCanvas();

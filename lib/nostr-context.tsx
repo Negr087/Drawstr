@@ -132,8 +132,33 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser);
-        setUser(userData);
-        setCurrentUser(userData);
+        // If not read-only and extension is available, re-verify pubkey in case profile changed
+        if (!userData.readOnly && typeof window !== "undefined" && window.nostr) {
+          useExtensionRef.current = true;
+          window.nostr.getPublicKey().then((currentPubkey) => {
+            if (currentPubkey !== userData.pubkey) {
+              // Extension profile changed — update session with current pubkey
+              const updatedUser = {
+                ...userData,
+                pubkey: currentPubkey,
+                npub: nip19.npubEncode(currentPubkey),
+              };
+              setUser(updatedUser);
+              setCurrentUser(updatedUser);
+              localStorage.setItem("nostr_user", JSON.stringify(updatedUser));
+              console.log("Session updated to current extension profile:", currentPubkey.slice(0, 16));
+            } else {
+              setUser(userData);
+              setCurrentUser(userData);
+            }
+          }).catch(() => {
+            setUser(userData);
+            setCurrentUser(userData);
+          });
+        } else {
+          setUser(userData);
+          setCurrentUser(userData);
+        }
       } catch (err) {
         console.error("Failed to restore session:", err);
       }
@@ -144,10 +169,15 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     async (unsignedEvent: UnsignedEvent): Promise<Event | null> => {
       try {
         if (user?.readOnly) return null;
-        if (useExtensionRef.current && window.nostr && !privateKeyHex) {
-          return await window.nostr.signEvent(unsignedEvent);
-        } else if (privateKeyHex) {
+        if (privateKeyHex) {
           return finalizeEvent(unsignedEvent, hexToBytes(privateKeyHex));
+        }
+        if (window.nostr) {
+          useExtensionRef.current = true;
+          // Get the extension's current pubkey and use it (handles profile switches)
+          const currentPubkey = await window.nostr.getPublicKey();
+          const eventToSign = { ...unsignedEvent, pubkey: currentPubkey };
+          return await window.nostr.signEvent(eventToSign);
         }
         return null;
       } catch (err) {
