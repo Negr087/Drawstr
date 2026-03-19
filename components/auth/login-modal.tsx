@@ -43,10 +43,14 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
 
   // Detectar conexión NIP-46 exitosa
   useEffect(() => {
-    if (nip46.connected && nip46.remotePubkey && !loginInProgressRef.current) {
+    if (nip46.connected && nip46.remotePubkey && nip46.signerPubkey && nip46.clientSecretHex && !loginInProgressRef.current) {
       loginInProgressRef.current = true;
       console.log("NIP-46 connected! Remote pubkey:", nip46.remotePubkey);
-      loginWithRemoteSigner(nip46.remotePubkey)
+      loginWithRemoteSigner(nip46.remotePubkey, {
+        signerPubkey: nip46.signerPubkey,
+        clientSecretHex: nip46.clientSecretHex,
+        relays: nip46.nip46Relays,
+      })
         .then(() => {
           console.log("Login successful!");
           onOpenChange(false);

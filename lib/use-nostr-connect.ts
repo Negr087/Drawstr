@@ -9,6 +9,9 @@ interface NostrConnectState {
   connected: boolean;
   remotePubkey: string | null;
   isWaiting: boolean;
+  signerPubkey: string | null;
+  clientSecretHex: string | null;
+  nip46Relays: string[];
 }
 
 const NIP46_RELAYS = [
@@ -61,6 +64,9 @@ export function useNostrConnect(relays: string[]) {
     connected: false,
     remotePubkey: null,
     isWaiting: false,
+    signerPubkey: null,
+    clientSecretHex: null,
+    nip46Relays: [],
   });
 
   const clientSecretKey = useRef<Uint8Array | null>(null);
@@ -121,6 +127,8 @@ export function useNostrConnect(relays: string[]) {
         return false;
       }
 
+      signerPubkeyRef.current = signerPubkey; // track signer for future requests
+
       // Send ACK
       const response = JSON.stringify({ id: message.id, result: secret, error: null });
       const encrypted = await encryptContent(response, secretBytes, signerPubkey, dec.usedNip44);
@@ -177,7 +185,14 @@ export function useNostrConnect(relays: string[]) {
     console.log("[NIP-46] Connected! User pubkey:", userPubkey);
     connectedRef.current = true;
     stopPolling();
-    setState(prev => ({ ...prev, connected: true, remotePubkey: userPubkey, isWaiting: false }));
+    setState(prev => ({
+      ...prev,
+      connected: true,
+      remotePubkey: userPubkey,
+      isWaiting: false,
+      signerPubkey: signerPubkeyRef.current,
+      clientSecretHex: toHex(secretBytes),
+    }));
     return true;
   }, [stopPolling]);
 
@@ -255,7 +270,7 @@ export function useNostrConnect(relays: string[]) {
     const now = Math.floor(Date.now() / 1000);
     listenStartedAt.current = now;
 
-    setState(prev => ({ ...prev, uri, isWaiting: true }));
+    setState(prev => ({ ...prev, uri, isWaiting: true, nip46Relays: allRelays }));
     startPolling(pubkey, secretBytes, secret, allRelays);
   }, [relays, startPolling]);
 
@@ -285,7 +300,7 @@ export function useNostrConnect(relays: string[]) {
     connectedRef.current = false;
     signerPubkeyRef.current = null;
     pendingGetPubkeyIdRef.current = null;
-    setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false });
+    setState({ uri: null, connected: false, remotePubkey: null, isWaiting: false, signerPubkey: null, clientSecretHex: null, nip46Relays: [] });
   }, [stopPolling]);
 
   useEffect(() => {

@@ -13,6 +13,8 @@ import {
 import {
   SimplePool,
   nip19,
+  nip44,
+  nip04,
   finalizeEvent,
   generateSecretKey,
   getPublicKey,
@@ -62,7 +64,7 @@ interface NostrContextType {
   error: string | null;
   loginWithExtension: () => Promise<void>;
   loginWithNpub: (npub: string) => Promise<void>;
-  loginWithRemoteSigner: (remotePubkey: string) => Promise<void>;
+  loginWithRemoteSigner: (remotePubkey: string, nip46Options?: { signerPubkey: string; clientSecretHex: string; relays: string[] }) => Promise<void>;
   logout: () => void;
   publishCanvasAction: (
     action: "add" | "update" | "delete",
@@ -89,6 +91,10 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   const [privateKeyHex, setPrivateKeyHex] = useState<string | null>(null);
   // Track whether the current session should use window.nostr for signing
   const useExtensionRef = useRef(false);
+  // NIP-46 remote signing session
+  const nip46SignerPubkeyRef = useRef<string | null>(null);
+  const nip46ClientSecretRef = useRef<Uint8Array | null>(null);
+  const nip46RelaysRef = useRef<string[]>([]);
 
   const { addElement, updateElement, deleteElement, updateCursor, setCurrentUser } =
     useCanvasStore();
@@ -132,12 +138,21 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser);
+        // Restore NIP-46 session if present
+        const savedNip46 = localStorage.getItem("nip46_session");
+        if (savedNip46) {
+          try {
+            const nip46 = JSON.parse(savedNip46);
+            nip46SignerPubkeyRef.current = nip46.signerPubkey;
+            nip46ClientSecretRef.current = hexToBytes(nip46.clientSecretHex);
+            nip46RelaysRef.current = nip46.relays;
+          } catch {}
+        }
         // If not read-only and extension is available, re-verify pubkey in case profile changed
         if (!userData.readOnly && typeof window !== "undefined" && window.nostr) {
           useExtensionRef.current = true;
           window.nostr.getPublicKey().then((currentPubkey) => {
             if (currentPubkey !== userData.pubkey) {
-              // Extension profile changed — update session with current pubkey
               const updatedUser = {
                 ...userData,
                 pubkey: currentPubkey,
@@ -146,7 +161,6 @@ export function NostrProvider({ children }: { children: ReactNode }) {
               setUser(updatedUser);
               setCurrentUser(updatedUser);
               localStorage.setItem("nostr_user", JSON.stringify(updatedUser));
-              console.log("Session updated to current extension profile:", currentPubkey.slice(0, 16));
             } else {
               setUser(userData);
               setCurrentUser(userData);
@@ -165,6 +179,73 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     }
   }, [setCurrentUser]);
 
+  const signViaNip46 = useCallback(
+    async (unsignedEvent: UnsignedEvent): Promise<Event | null> => {
+      const signerPubkey = nip46SignerPubkeyRef.current;
+      const clientSecretBytes = nip46ClientSecretRef.current;
+      const relaysToUse = nip46RelaysRef.current;
+      if (!signerPubkey || !clientSecretBytes || !pool) return null;
+
+      const clientPubkey = getPublicKey(clientSecretBytes);
+      const reqId = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+
+      // Send sign_event request to bunker
+      const { pubkey: _pubkey, ...eventTemplate } = unsignedEvent as any;
+      const request = JSON.stringify({ id: reqId, method: "sign_event", params: [eventTemplate] });
+      let encrypted: string;
+      try {
+        encrypted = nip44.encrypt(request, nip44.getConversationKey(clientSecretBytes, signerPubkey));
+      } catch {
+        encrypted = await nip04.encrypt(
+          Array.from(clientSecretBytes).map(b => b.toString(16).padStart(2, "0")).join(""),
+          signerPubkey,
+          request
+        );
+      }
+
+      const reqEvent = finalizeEvent({
+        kind: 24133,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [["p", signerPubkey]],
+        content: encrypted,
+      }, clientSecretBytes);
+      await Promise.allSettled(pool.publish(relaysToUse, reqEvent));
+
+      // Wait for the signed response (15s timeout)
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => { sub.close(); resolve(null); }, 15000);
+        const sub = pool.subscribeMany(
+          relaysToUse,
+          [{ kinds: [24133], "#p": [clientPubkey] }] as any,
+          {
+            async onevent(event) {
+              try {
+                let decrypted: string;
+                try {
+                  decrypted = nip44.decrypt(event.content, nip44.getConversationKey(clientSecretBytes, signerPubkey));
+                } catch {
+                  decrypted = await nip04.decrypt(
+                    Array.from(clientSecretBytes).map(b => b.toString(16).padStart(2, "0")).join(""),
+                    signerPubkey,
+                    event.content
+                  );
+                }
+                const msg = JSON.parse(decrypted);
+                if (msg.id === reqId && msg.result) {
+                  clearTimeout(timer);
+                  sub.close();
+                  resolve(msg.result as Event);
+                }
+              } catch {}
+            },
+          }
+        );
+      });
+    },
+    [pool]
+  );
+
   const signEvent = useCallback(
     async (unsignedEvent: UnsignedEvent): Promise<Event | null> => {
       try {
@@ -174,10 +255,12 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         }
         if (window.nostr) {
           useExtensionRef.current = true;
-          // Get the extension's current pubkey and use it (handles profile switches)
           const currentPubkey = await window.nostr.getPublicKey();
           const eventToSign = { ...unsignedEvent, pubkey: currentPubkey };
           return await window.nostr.signEvent(eventToSign);
+        }
+        if (nip46SignerPubkeyRef.current && nip46ClientSecretRef.current) {
+          return await signViaNip46(unsignedEvent);
         }
         return null;
       } catch (err) {
@@ -185,7 +268,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         return null;
       }
     },
-    [privateKeyHex, user]
+    [privateKeyHex, user, signViaNip46]
   );
 
   const loadCanvasState = useCallback(
@@ -288,7 +371,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
   );
 
   const loginWithRemoteSigner = useCallback(
-    async (remotePubkey: string) => {
+    async (remotePubkey: string, nip46Options?: { signerPubkey: string; clientSecretHex: string; relays: string[] }) => {
       try {
         const npub = nip19.npubEncode(remotePubkey);
 
@@ -332,6 +415,12 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         setCurrentUser(nostrUser);
         useExtensionRef.current = false;
         localStorage.setItem("nostr_user", JSON.stringify(nostrUser));
+        if (nip46Options) {
+          nip46SignerPubkeyRef.current = nip46Options.signerPubkey;
+          nip46ClientSecretRef.current = hexToBytes(nip46Options.clientSecretHex);
+          nip46RelaysRef.current = nip46Options.relays;
+          localStorage.setItem("nip46_session", JSON.stringify(nip46Options));
+        }
         console.log("✅ Logged in via NIP-46");
       } catch (error) {
         console.error("Failed to login with remote signer:", error);
@@ -526,7 +615,11 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     setCurrentUser(null);
     setPrivateKeyHex(null);
     useExtensionRef.current = false;
+    nip46SignerPubkeyRef.current = null;
+    nip46ClientSecretRef.current = null;
+    nip46RelaysRef.current = [];
     localStorage.removeItem("nostr_user");
+    localStorage.removeItem("nip46_session");
   }, [setCurrentUser, user, saveCanvasState]);
 
   const listUserCanvases = useCallback(async () => {
