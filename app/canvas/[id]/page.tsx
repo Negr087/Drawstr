@@ -52,7 +52,7 @@ export default function CanvasPage({ params }: PageProps) {
   const { setCanvasId, setCanvasName, clearCanvas, elements, loadElements, canvasName } = useCanvasStore();
   const { user, subscribeToCanvas, isConnected, loadCanvasState, pool, relays } = useNostr();
 
-  useLastCanvas(canvasId, user?.pubkey);
+  useLastCanvas(canvasId, canvasName, user?.pubkey);
 
   // Check URL params and fetch author info
   useEffect(() => {

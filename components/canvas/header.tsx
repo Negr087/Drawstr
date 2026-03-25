@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { NWCSettingsModal } from "@/components/settings/nwc-settings-modal";
-import { Settings } from "lucide-react";
+import { MyCanvasesModal } from "@/components/canvas/my-canvases-modal";
+import { Settings, FolderOpen } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useNostr } from "@/lib/nostr-context";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,7 @@ export function Header({
 }: HeaderProps) {
   const [showZapModal, setShowZapModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showMyCanvases, setShowMyCanvases] = useState(false);
   const { canvasName, setCanvasName, collaboratorCursors, canvasId } = useCanvasStore();
   const { user, logout } = useNostr();
 
@@ -242,6 +244,16 @@ export function Header({
           <Settings size={16} />
           Settings
         </Button>
+        {user && (
+          <Button
+            variant="outline"
+            className="justify-start gap-2"
+            onClick={() => setShowMyCanvases(true)}
+          >
+            <FolderOpen size={16} />
+            My Canvases
+          </Button>
+        )}
         {zapTarget && (
           <Button
             variant="outline"
@@ -320,6 +332,11 @@ export function Header({
                   </p>
                 </div>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowMyCanvases(true)}>
+                  <FolderOpen size={14} className="mr-2" />
+                  My Canvases
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()}>
                   <LogOut size={14} className="mr-2" />
                   Disconnect
@@ -348,11 +365,20 @@ export function Header({
       )}
 
       {/* NWC Settings Modal */}
-    <
-      NWCSettingsModal 
-  open={showSettingsModal} 
-  onOpenChange={setShowSettingsModal}
+      <NWCSettingsModal
+        open={showSettingsModal}
+        onOpenChange={setShowSettingsModal}
       />
+
+      {/* My Canvases Modal */}
+      {user && (
+        <MyCanvasesModal
+          open={showMyCanvases}
+          onOpenChange={setShowMyCanvases}
+          userPubkey={user.pubkey}
+          currentCanvasId={canvasId}
+        />
+      )}
       </>
   );
 }
