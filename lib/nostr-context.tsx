@@ -210,16 +210,20 @@ export function NostrProvider({ children }: { children: ReactNode }) {
         tags: [["p", signerPubkey]],
         content: encrypted,
       }, clientSecretBytes);
-      await Promise.allSettled(pool.publish(relaysToUse, reqEvent));
 
-      // Wait for the signed response (15s timeout)
+      const sinceTs = Math.floor(Date.now() / 1000) - 5;
+
+      // Subscribe BEFORE publishing to avoid missing fast responses
       return new Promise((resolve) => {
-        const timer = setTimeout(() => { sub.close(); resolve(null); }, 15000);
+        let timer: ReturnType<typeof setTimeout>;
+
         const sub = pool.subscribeMany(
           relaysToUse,
-          [{ kinds: [24133], "#p": [clientPubkey] }] as any,
+          [{ kinds: [24133], "#p": [clientPubkey], since: sinceTs }] as any,
           {
             async onevent(event) {
+              // Only accept responses from our signer
+              if (event.pubkey !== signerPubkey) return;
               try {
                 let decrypted: string;
                 try {
@@ -241,6 +245,11 @@ export function NostrProvider({ children }: { children: ReactNode }) {
             },
           }
         );
+
+        timer = setTimeout(() => { sub.close(); resolve(null); }, 15000);
+
+        // Publish after subscription is active
+        Promise.allSettled(pool.publish(relaysToUse, reqEvent));
       });
     },
     [pool]

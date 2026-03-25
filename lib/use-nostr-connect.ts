@@ -204,12 +204,13 @@ export function useNostrConnect(relays: string[]) {
     const relaysToUse = listenRelays.current;
     if (!secretBytes || !pubkey || !secret) return;
 
-    const since = listenStartedAt.current - 5;
+    const since = listenStartedAt.current - 30;
     try {
       const events = await pool.current.querySync(
         relaysToUse,
         { kinds: [24133], "#p": [pubkey], since } as any
       );
+      if (events.length > 0) console.log("[NIP-46] Poll found", events.length, "event(s)");
       for (const event of events) {
         if (connectedRef.current) return;
         const ok = await processEvent(event, pubkey, secretBytes, secret, relaysToUse);
@@ -230,7 +231,7 @@ export function useNostrConnect(relays: string[]) {
     // Immediate first poll
     pool.current.querySync(
       relaysToUse,
-      { kinds: [24133], "#p": [pubkey], since: listenStartedAt.current - 5 } as any
+      { kinds: [24133], "#p": [pubkey], since: listenStartedAt.current - 30 } as any
     ).then(async (events) => {
       for (const event of events) {
         if (connectedRef.current) return;
